@@ -1,12 +1,12 @@
 # ShareNet Runbook
 
-Operational guide for the current ShareNet project. The maintained GUI is FLTK. The CLI tools remain available for protocol checks and simple terminal demos.
+Operational guide for the current ShareNet project. The maintained GUI is Qt Widgets. The CLI tools remain available for protocol checks and simple terminal demos.
 
 ## 1. Project Layout
 
 - `src/server/`, `src/client/`: CLI server/client implementation.
 - `src/common/`: shared protocol, socket, file, and chunk helpers.
-- `src/fltk/`: lightweight FLTK GUI server/client.
+- `src/qt/`: Qt GUI server/client.
 - `scripts/`: platform build and packaging scripts.
 - `server_files/`: files hosted by the server at runtime.
 - `client_files/`: optional local files to upload from the client.
@@ -16,7 +16,7 @@ Only `.gitkeep` files are tracked inside runtime folders. Real uploaded/download
 
 ## 2. Clean Workspace
 
-Use this when you want to remove generated output:
+Windows PowerShell:
 
 ```powershell
 Remove-Item -Recurse -Force build,dist -ErrorAction SilentlyContinue
@@ -36,7 +36,7 @@ Generated output is intentionally ignored:
 - `dist/`
 - root executables such as `sharenet_server`
 - runtime files under `client_files/`, `server_files/`, and `downloads/`
-- local FLTK/vcpkg install folders
+- local Qt/vcpkg install folders
 
 ## 3. Build CLI
 
@@ -59,37 +59,37 @@ dist\windows\sharenet_server.exe
 dist\windows\sharenet_client.exe
 ```
 
-## 4. Build FLTK GUI
+## 4. Build Qt GUI
 
 Windows:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts\build-fltk-windows.ps1
+powershell -ExecutionPolicy Bypass -File scripts\build-qt-windows.ps1
 ```
 
 Linux:
 
 ```sh
-./scripts/build-fltk-linux.sh
+./scripts/build-qt-linux.sh
 ```
 
 macOS:
 
 ```sh
-./scripts/build-fltk-macos.sh
+./scripts/build-qt-macos.sh
 ```
 
-If FLTK or build dependencies are missing, the scripts ask before installing anything. Windows uses vcpkg with the lightweight `fltk:x64-mingw-dynamic` dependency.
+If Qt or build dependencies are missing, the scripts ask before installing anything. Windows uses vcpkg and builds `qtbase:x64-mingw-dynamic` when a usable Qt installation is not already available.
 
 Build output:
 
 ```text
-dist\fltk-windows\sharenet_fltk_server.exe
-dist\fltk-windows\sharenet_fltk_client.exe
-build/fltk-linux/sharenet_fltk_server
-build/fltk-linux/sharenet_fltk_client
-build/fltk-macos/sharenet_fltk_server
-build/fltk-macos/sharenet_fltk_client
+dist\qt-windows\sharenet_qt_server.exe
+dist\qt-windows\sharenet_qt_client.exe
+build/qt-linux/sharenet_qt_server
+build/qt-linux/sharenet_qt_client
+build/qt-macos/sharenet_qt_server
+build/qt-macos/sharenet_qt_client
 ```
 
 Verbose compiler/package logs are written to:
@@ -98,12 +98,12 @@ Verbose compiler/package logs are written to:
 build\logs\
 ```
 
-## 5. Run FLTK
+## 5. Run Qt
 
 Start the server first:
 
 ```text
-sharenet_fltk_server
+sharenet_qt_server
 ```
 
 Recommended bind settings:
@@ -114,7 +114,7 @@ Recommended bind settings:
 Then start the client:
 
 ```text
-sharenet_fltk_client
+sharenet_qt_client
 ```
 
 Client workflow:
@@ -189,12 +189,13 @@ dist\ShareNet-Windows-Portable.zip
 dist\ShareNet-Windows-Portable.exe
 ```
 
-The portable package includes CLI executables, FLTK executables, runtime DLLs, launcher script, and empty runtime folders. It should run on a Windows machine without requiring FLTK or a compiler to be installed.
+The portable package includes CLI executables, Qt executables, runtime DLLs, launcher script, and empty runtime folders. It should run on a Windows machine without requiring Qt or a compiler to be installed.
 
 ## 9. Troubleshooting
 
 - `Address already in use`: stop the existing server or choose another port.
 - Client cannot connect: verify IP, port, firewall rules, and server state.
-- Windows FLTK build fails: rerun `scripts\build-fltk-windows.ps1` and inspect `build\logs\`.
+- Windows Qt build takes a long time: first vcpkg Qt builds can take a long time; cached reruns are faster.
+- Windows Qt build fails: rerun `scripts\build-qt-windows.ps1` and inspect `build\logs\`.
 - Portable app does not start: keep generated DLLs next to their executables.
 - Files do not appear: confirm the server is using the expected `server_files/` folder and click Refresh/List.

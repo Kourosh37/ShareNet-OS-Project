@@ -1,6 +1,6 @@
 # ShareNet-Phase1-C
 
-ShareNet is a C-based TCP file sharing project with a binary protocol, chunked transfers, CLI tools, and a lightweight FLTK GUI.
+ShareNet is a C-based TCP file sharing project with a binary protocol, chunked transfers, CLI tools, and a Qt GUI.
 
 ## Features
 
@@ -9,7 +9,7 @@ ShareNet is a C-based TCP file sharing project with a binary protocol, chunked t
 - Chunked upload and download
 - Safe filename validation against path traversal
 - CLI server and client
-- FLTK server and client
+- Qt server and client
 - Windows, Linux, and macOS build scripts
 - Windows portable package script
 
@@ -20,12 +20,12 @@ CLI:
 - C compiler
 - make on Linux/macOS or WSL
 
-FLTK GUI:
+Qt GUI:
 
 - CMake
 - C++17 compiler
-- FLTK
-- Windows FLTK auto-install uses `vcpkg` with `fltk:x64-mingw-dynamic`
+- Qt 6 or Qt 5 Widgets
+- Windows Qt auto-install uses `vcpkg` with `qtbase:x64-mingw-dynamic`
 
 The build scripts ask before installing missing dependencies.
 
@@ -46,29 +46,29 @@ Windows:
 powershell -ExecutionPolicy Bypass -File scripts\build-windows.ps1
 ```
 
-## Build FLTK GUI
+## Build Qt GUI
 
 Windows:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts\build-fltk-windows.ps1
+powershell -ExecutionPolicy Bypass -File scripts\build-qt-windows.ps1
 ```
 
 Linux:
 
 ```sh
-./scripts/build-fltk-linux.sh
+./scripts/build-qt-linux.sh
 ```
 
 macOS:
 
 ```sh
-./scripts/build-fltk-macos.sh
+./scripts/build-qt-macos.sh
 ```
 
-## FLTK Server
+## Qt Server
 
-The FLTK server supports:
+The Qt server supports:
 
 - configurable bind IP and port
 - file table for `server_files`
@@ -76,9 +76,9 @@ The FLTK server supports:
 - copy/download selected server file to a local path
 - protocol-compatible TCP service
 
-## FLTK Client
+## Qt Client
 
-The FLTK client supports:
+The Qt client supports:
 
 - configurable server IP and port
 - native file picker for uploads

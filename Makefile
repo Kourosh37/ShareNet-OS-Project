@@ -8,13 +8,13 @@ CLIENT_SRC := src/client/client_main.c src/client/client.c
 SERVER_BIN := sharenet_server
 CLIENT_BIN := sharenet_client
 
-.PHONY: all fltk clean run-server run-client
+.PHONY: all qt clean run-server run-client
 
 all: $(SERVER_BIN) $(CLIENT_BIN)
 
-fltk:
-	cmake -S src/fltk -B build/fltk
-	cmake --build build/fltk
+qt:
+	cmake -S src/qt -B build/qt
+	cmake --build build/qt
 
 $(SERVER_BIN): $(COMMON_SRC) $(SERVER_SRC)
 	$(CC) $(CFLAGS) -o $@ $^
@@ -30,4 +30,4 @@ run-client: $(CLIENT_BIN)
 
 clean:
 	rm -f $(SERVER_BIN) $(CLIENT_BIN) *.exe *.o *.out
-	rm -rf build/fltk
+	rm -rf build/qt
