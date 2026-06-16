@@ -25,8 +25,6 @@ function Start-Step {
     $script:StepIndex += 1
     $Percent = [math]::Round((($script:StepIndex - 1) / $TotalSteps) * 100)
     Write-ProgressText $Percent ("[{0}/{1}] {2}" -f $script:StepIndex, $TotalSteps, $Title)
-    Write-Host ""
-    if ($Estimate) { Write-Host "Estimate: $Estimate" }
     return [System.Diagnostics.Stopwatch]::StartNew()
 }
 
@@ -35,17 +33,16 @@ function Complete-Step {
     $Timer.Stop()
     $Percent = [math]::Round(($script:StepIndex / $TotalSteps) * 100)
     Write-ProgressText $Percent ("Done: {0} in {1}" -f $Title, (Format-Duration $Timer.Elapsed))
-    Write-Host ""
 }
 
 function Write-ProgressText {
     param([int]$Percent, [string]$Status)
     if ($Percent -lt 0) { $Percent = 0 }
     if ($Percent -gt 100) { $Percent = 100 }
-    $Width = 24
+    $Width = 32
     $Filled = [math]::Floor($Width * $Percent / 100)
     $Bar = ("#" * $Filled).PadRight($Width, "-")
-    $MaxStatus = 54
+    $MaxStatus = 76
     if ($Status.Length -gt $MaxStatus) {
         $Status = $Status.Substring(0, $MaxStatus - 3) + "..."
     }
@@ -60,6 +57,10 @@ function Write-ProgressText {
 
 function Ask-YesNo {
     param([string]$Question)
+    if ($script:LastProgressLength -gt 0) {
+        Write-Host ""
+        $script:LastProgressLength = 0
+    }
     $Answer = Read-Host "$Question [y/N]"
     return $Answer -match "^(y|yes)$"
 }
@@ -95,6 +96,7 @@ function Invoke-Quiet {
     if ($ExitCode -ne 0) {
         $Timer.Stop()
         Add-Content -LiteralPath $LogPath -Encoding UTF8 -Value @("", "[$(Get-Date)] FAILED after $(Format-Duration $Timer.Elapsed)")
+        Write-Host ""
         Write-Host "Failed. Last log lines from ${LogPath}:"
         Get-Content $LogPath -Tail 80
         throw "$Title failed. Full log: $LogPath"
@@ -154,4 +156,5 @@ if (-not (Test-CommandExists $CC)) {
 Invoke-Compile "windows-cli-server" @CFlags -o "$Out\sharenet_server.exe" @Common "$Root\src\server\server_main.c" "$Root\src\server\server.c" -lws2_32
 Invoke-Compile "windows-cli-client" @CFlags -o "$Out\sharenet_client.exe" @Common "$Root\src\client\client_main.c" "$Root\src\client\client.c" -lws2_32
 
-Write-Host "Windows CLI executables written to $Out"
+Write-ProgressText 100 "Windows CLI executables written to $Out"
+Write-Host ""

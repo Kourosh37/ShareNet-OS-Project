@@ -29,10 +29,6 @@ function Start-Step {
     $script:StepIndex += 1
     $Percent = [math]::Round((($script:StepIndex - 1) / $TotalSteps) * 100)
     Write-ProgressText $Percent ("[{0}/{1}] {2}" -f $script:StepIndex, $TotalSteps, $Title)
-    Write-Host ""
-    if ($Estimate) {
-        Write-Host "Estimate: $Estimate"
-    }
     return [System.Diagnostics.Stopwatch]::StartNew()
 }
 
@@ -41,17 +37,16 @@ function Complete-Step {
     $Timer.Stop()
     $Percent = [math]::Round(($script:StepIndex / $TotalSteps) * 100)
     Write-ProgressText $Percent ("Done: {0} in {1}" -f $Title, (Format-Duration $Timer.Elapsed))
-    Write-Host ""
 }
 
 function Write-ProgressText {
     param([int]$Percent, [string]$Status)
     if ($Percent -lt 0) { $Percent = 0 }
     if ($Percent -gt 100) { $Percent = 100 }
-    $Width = 24
+    $Width = 32
     $Filled = [math]::Floor($Width * $Percent / 100)
     $Bar = ("#" * $Filled).PadRight($Width, "-")
-    $MaxStatus = 54
+    $MaxStatus = 76
     if ($Status.Length -gt $MaxStatus) {
         $Status = $Status.Substring(0, $MaxStatus - 3) + "..."
     }
@@ -122,6 +117,10 @@ function Show-LogFailure {
 
 function Ask-YesNo {
     param([string]$Question)
+    if ($script:LastProgressLength -gt 0) {
+        Write-Host ""
+        $script:LastProgressLength = 0
+    }
     $Answer = Read-Host "$Question [y/N]"
     return $Answer -match "^(y|yes)$"
 }
@@ -268,7 +267,7 @@ function Install-VcpkgIfMissing {
     if ($VcpkgRoot) { return $VcpkgRoot }
 
     Install-ScoopIfMissing
-    Write-Host "Installing vcpkg with Scoop..."
+    Write-ProgressText ([math]::Round((($script:StepIndex - 1) / $TotalSteps) * 100)) "Installing vcpkg with Scoop"
     Invoke-Quiet "Installing vcpkg" "scoop-vcpkg.log" { scoop install vcpkg } "Usually 1-5 minutes."
     $VcpkgRoot = Find-VcpkgRoot
     if (-not $VcpkgRoot) {
@@ -297,7 +296,7 @@ function Install-Qt {
 
     Repair-VcpkgToolCache $VcpkgRoot
 
-    Write-Host "Installing minimal Qt dependencies with vcpkg. First run can take a long time."
+    Write-ProgressText ([math]::Round((($script:StepIndex - 1) / $TotalSteps) * 100)) "Installing Qt dependencies with vcpkg"
     Invoke-Quiet "Installing Qt dependencies" "vcpkg-qtbase.log" {
         & $VcpkgExe install "--x-manifest-root=$ManifestDir" "--triplet=$Triplet" "--host-triplet=$Triplet"
     } "First run is commonly 30-120 minutes; cached reruns are much faster."
@@ -313,7 +312,7 @@ function Repair-VcpkgToolCache {
     Get-ChildItem $PerlRoot -Directory -ErrorAction SilentlyContinue |
         Where-Object { $_.Name -match "^\d+\.\d+\.\d+\.\d+$" } |
         ForEach-Object {
-            Write-Host "Refreshing vcpkg Perl tool cache: $($_.Name)"
+            Write-ProgressText ([math]::Round((($script:StepIndex - 1) / $TotalSteps) * 100)) "Refreshing vcpkg Perl tool cache"
             Remove-Item -LiteralPath $_.FullName -Recurse -Force -ErrorAction SilentlyContinue
         }
 }
@@ -434,7 +433,8 @@ if ($Deploy) {
     } "Usually under 1 minute."
 } else {
     Copy-VcpkgRuntimeDlls $VcpkgRoot
-    Write-Host "windeployqt was not found. Runtime DLLs were copied when available; Qt plugins may still be required."
+    Write-ProgressText 95 "windeployqt not found; copied available runtime DLLs"
 }
 
-Write-Host "Qt Windows executables written to $Out"
+Write-ProgressText 100 "Qt Windows executables written to $Out"
+Write-Host ""

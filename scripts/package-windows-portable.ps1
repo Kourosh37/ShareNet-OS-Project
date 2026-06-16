@@ -31,8 +31,6 @@ function Start-Step {
     $script:StepIndex += 1
     $Percent = [math]::Round((($script:StepIndex - 1) / $TotalSteps) * 100)
     Write-ProgressText $Percent ("[{0}/{1}] {2}" -f $script:StepIndex, $TotalSteps, $Title)
-    Write-Host ""
-    if ($Estimate) { Write-Host "Estimate: $Estimate" }
     return [System.Diagnostics.Stopwatch]::StartNew()
 }
 
@@ -41,17 +39,16 @@ function Complete-Step {
     $Timer.Stop()
     $Percent = [math]::Round(($script:StepIndex / $TotalSteps) * 100)
     Write-ProgressText $Percent ("Done: {0} in {1}" -f $Title, (Format-Duration $Timer.Elapsed))
-    Write-Host ""
 }
 
 function Write-ProgressText {
     param([int]$Percent, [string]$Status)
     if ($Percent -lt 0) { $Percent = 0 }
     if ($Percent -gt 100) { $Percent = 100 }
-    $Width = 24
+    $Width = 32
     $Filled = [math]::Floor($Width * $Percent / 100)
     $Bar = ("#" * $Filled).PadRight($Width, "-")
-    $MaxStatus = 54
+    $MaxStatus = 76
     if ($Status.Length -gt $MaxStatus) {
         $Status = $Status.Substring(0, $MaxStatus - 3) + "..."
     }
@@ -66,6 +63,10 @@ function Write-ProgressText {
 
 function Ask-YesNo {
     param([string]$Question)
+    if ($script:LastProgressLength -gt 0) {
+        Write-Host ""
+        $script:LastProgressLength = 0
+    }
     $Answer = Read-Host "$Question [y/N]"
     return $Answer -match "^(y|yes)$"
 }
@@ -100,6 +101,7 @@ function Invoke-Quiet {
     if ($ExitCode -ne 0) {
         $Timer.Stop()
         Add-Content -LiteralPath $LogPath -Encoding UTF8 -Value @("", "[$(Get-Date)] FAILED after $(Format-Duration $Timer.Elapsed)")
+        Write-Host ""
         Write-Host "Failed. Last log lines from ${LogPath}:"
         Get-Content $LogPath -Tail 80
         throw "$Title failed. Full log: $LogPath"
@@ -167,7 +169,6 @@ function Copy-DirectoryContents {
     Copy-Item -Force -Recurse (Join-Path $Source "*") $Target
 }
 
-Write-Host "Building Windows CLI executables..."
 Invoke-Quiet "Building Windows CLI executables" "package-build-windows.log" {
     & powershell -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "build-windows.ps1")
 } "Usually under 2 minutes."
@@ -177,7 +178,7 @@ try {
         & powershell -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "build-qt-windows.ps1")
     } "First run can take a long time; cached reruns are faster."
 } catch {
-    Write-Host "Qt packaging skipped: $($_.Exception.Message)"
+    Write-ProgressText ([math]::Round(($script:StepIndex / $TotalSteps) * 100)) "Qt packaging skipped; see logs"
 }
 
 Remove-Item -Recurse -Force $Portable -ErrorAction SilentlyContinue
@@ -231,7 +232,6 @@ Remove-Item -Force $ZipPath -ErrorAction SilentlyContinue
 $ZipTimer = Start-Step "Creating portable ZIP" "Usually under 5 minutes."
 Compress-Archive -Path $Portable -DestinationPath $ZipPath -Force
 Complete-Step "Creating portable ZIP" $ZipTimer
-Write-Host "Portable ZIP written to $ZipPath"
 
 $SevenZip = Find-7Zip
 if (-not $SevenZip) {
@@ -267,10 +267,13 @@ RunProgram="ShareNetLauncher.cmd"
             $OutStream.Write($Bytes, 0, $Bytes.Length)
         }
         $OutStream.Close()
-        Write-Host "Single self-extracting EXE written to $SfxPath"
+        Write-ProgressText 100 "Done: $SfxPath"
+        Write-Host ""
     } else {
-        Write-Host "7-Zip was found, but no SFX module was found. ZIP package is ready; single EXE was skipped."
+        Write-ProgressText 100 "ZIP package is ready; 7-Zip SFX module was not found"
+        Write-Host ""
     }
 } else {
-    Write-Host "7-Zip is unavailable. ZIP package is ready; single EXE was skipped."
+    Write-ProgressText 100 "ZIP package is ready; single EXE was skipped"
+    Write-Host ""
 }
