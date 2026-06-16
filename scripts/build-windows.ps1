@@ -83,8 +83,16 @@ function Invoke-Quiet {
     @("[$StartedAt] START: $Title", "Estimate: $(if ($Estimate) { $Estimate } else { 'short' })", "") |
         Set-Content -LiteralPath $LogPath -Encoding UTF8
 
-    & $Command *>> $LogPath
-    if ($LASTEXITCODE -ne 0) {
+    $PreviousErrorActionPreference = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    $global:LASTEXITCODE = 0
+    try {
+        & $Command *>> $LogPath
+        $ExitCode = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $PreviousErrorActionPreference
+    }
+    if ($ExitCode -ne 0) {
         $Timer.Stop()
         Add-Content -LiteralPath $LogPath -Encoding UTF8 -Value @("", "[$(Get-Date)] FAILED after $(Format-Duration $Timer.Elapsed)")
         Write-Host "Failed. Last log lines from ${LogPath}:"
@@ -96,19 +104,25 @@ function Invoke-Quiet {
     Complete-Step $Title $Timer
 }
 
+function Install-ScoopIfMissing {
+    if (Test-CommandExists "scoop") { return }
+    if (-not (Ask-YesNo "Scoop was not found. Install Scoop now?")) {
+        throw "Scoop is required to install missing Windows dependencies automatically."
+    }
+    Invoke-Quiet "Installing Scoop" "scoop-install.log" {
+        Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser -Force -ErrorAction Stop
+        Invoke-RestMethod -Uri https://get.scoop.sh -ErrorAction Stop | Invoke-Expression
+    } "Usually 1-3 minutes."
+    $env:PATH = "$env:USERPROFILE\scoop\shims;$env:PATH"
+    if (-not (Test-CommandExists "scoop")) {
+        throw "Scoop installation finished, but scoop was not found on PATH. Open a new PowerShell window and rerun this script."
+    }
+}
+
 function Install-WindowsCompiler {
-    if (Test-CommandExists "scoop") {
-        Invoke-Quiet "Installing GCC with Scoop" "scoop-gcc.log" { scoop install gcc } "Usually 2-10 minutes."
-        return
-    }
-    if (Test-CommandExists "winget") {
-        Invoke-Quiet "Installing GCC with winget" "winget-gcc.log" {
-            winget install --id BrechtSanders.WinLibs.POSIX.UCRT -e --accept-package-agreements --accept-source-agreements
-        } "Usually 2-10 minutes."
-        Write-Host "If gcc is still not on PATH, open a new PowerShell window and rerun this script."
-        return
-    }
-    throw "No supported package manager found. Install gcc/MinGW-w64 manually or install Scoop/winget."
+    Install-ScoopIfMissing
+    Invoke-Quiet "Installing GCC with Scoop" "scoop-gcc.log" { scoop install gcc } "Usually 2-10 minutes."
+    $env:PATH = "$env:USERPROFILE\scoop\shims;$env:PATH"
 }
 
 function Invoke-Compile {

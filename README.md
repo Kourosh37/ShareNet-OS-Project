@@ -27,7 +27,15 @@ Qt GUI:
 - Qt 6 or Qt 5 Widgets
 - Windows Qt auto-install uses `vcpkg` with `qtbase:x64-mingw-dynamic`
 
-The build scripts ask before installing missing dependencies.
+The Windows build scripts ask before installing missing dependencies. If Scoop
+is missing, they can install it for the current user with:
+
+```powershell
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+Invoke-RestMethod -Uri https://get.scoop.sh | Invoke-Expression
+```
+
+After Scoop is available, missing Windows tools are installed with Scoop.
 
 Build scripts keep console output concise. Full logs, timings, and failure
 details are written to `build\logs\`.

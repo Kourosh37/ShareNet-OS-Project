@@ -109,18 +109,25 @@ function Invoke-Quiet {
     Complete-Step $Title $Timer
 }
 
+function Install-ScoopIfMissing {
+    if (Test-CommandExists "scoop") { return }
+    if (-not (Ask-YesNo "Scoop was not found. Install Scoop now?")) {
+        throw "Scoop is required to install missing Windows dependencies automatically."
+    }
+    Invoke-Quiet "Installing Scoop" "scoop-install.log" {
+        Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser -Force -ErrorAction Stop
+        Invoke-RestMethod -Uri https://get.scoop.sh -ErrorAction Stop | Invoke-Expression
+    } "Usually 1-3 minutes."
+    $env:PATH = "$env:USERPROFILE\scoop\shims;$env:PATH"
+    if (-not (Test-CommandExists "scoop")) {
+        throw "Scoop installation finished, but scoop was not found on PATH. Open a new PowerShell window and rerun this script."
+    }
+}
+
 function Install-7Zip {
-    if (Test-CommandExists "scoop") {
-        Invoke-Quiet "Installing 7-Zip with Scoop" "scoop-7zip.log" { scoop install 7zip } "Usually 1-3 minutes."
-        return
-    }
-    if (Test-CommandExists "winget") {
-        Invoke-Quiet "Installing 7-Zip with winget" "winget-7zip.log" {
-            winget install --id 7zip.7zip -e --accept-package-agreements --accept-source-agreements
-        } "Usually 1-3 minutes."
-        return
-    }
-    throw "No supported package manager found for 7-Zip."
+    Install-ScoopIfMissing
+    Invoke-Quiet "Installing 7-Zip with Scoop" "scoop-7zip.log" { scoop install 7zip } "Usually 1-3 minutes."
+    $env:PATH = "$env:USERPROFILE\scoop\shims;$env:PATH"
 }
 
 function Find-7Zip {

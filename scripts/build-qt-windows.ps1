@@ -180,6 +180,38 @@ function Invoke-Quiet {
     Complete-Step $Title $Timer
 }
 
+function Install-ScoopIfMissing {
+    if (Test-CommandExists "scoop") { return }
+    if (-not (Ask-YesNo "Scoop was not found. Install Scoop now?")) {
+        throw "Scoop is required to install missing Windows dependencies automatically."
+    }
+    Invoke-Quiet "Installing Scoop" "scoop-install.log" {
+        Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser -Force -ErrorAction Stop
+        Invoke-RestMethod -Uri https://get.scoop.sh -ErrorAction Stop | Invoke-Expression
+    } "Usually 1-3 minutes."
+    $env:PATH = "$env:USERPROFILE\scoop\shims;$env:PATH"
+    if (-not (Test-CommandExists "scoop")) {
+        throw "Scoop installation finished, but scoop was not found on PATH. Open a new PowerShell window and rerun this script."
+    }
+}
+
+function Install-ScoopPackageIfMissing {
+    param(
+        [string]$CommandName,
+        [string]$PackageName,
+        [string]$Title,
+        [string]$LogName,
+        [string]$Estimate
+    )
+    if (Test-CommandExists $CommandName) { return }
+    Install-ScoopIfMissing
+    if (-not (Ask-YesNo "$CommandName was not found. Install $PackageName with Scoop now?")) {
+        throw "$CommandName is required."
+    }
+    Invoke-Quiet $Title $LogName { scoop install $PackageName } $Estimate
+    $env:PATH = "$env:USERPROFILE\scoop\shims;$env:PATH"
+}
+
 function Find-VcpkgRoot {
     if ($env:VCPKG_ROOT -and (Test-Path (Join-Path $env:VCPKG_ROOT "vcpkg.exe"))) {
         return $env:VCPKG_ROOT
@@ -235,10 +267,7 @@ function Install-VcpkgIfMissing {
     $VcpkgRoot = Find-VcpkgRoot
     if ($VcpkgRoot) { return $VcpkgRoot }
 
-    if (-not (Test-CommandExists "scoop")) {
-        throw "vcpkg was not found and Scoop is not available. Install vcpkg or set VCPKG_ROOT."
-    }
-
+    Install-ScoopIfMissing
     Write-Host "Installing vcpkg with Scoop..."
     Invoke-Quiet "Installing vcpkg" "scoop-vcpkg.log" { scoop install vcpkg } "Usually 1-5 minutes."
     $VcpkgRoot = Find-VcpkgRoot
@@ -321,8 +350,14 @@ function Copy-VcpkgRuntimeDlls {
     }
 }
 
-if (-not (Test-CommandExists "cmake")) {
-    throw "cmake was not found. Install CMake first."
+Install-ScoopPackageIfMissing "cmake" "cmake" "Installing CMake with Scoop" "scoop-cmake.log" "Usually 1-5 minutes."
+Install-ScoopPackageIfMissing "gcc" "gcc" "Installing GCC with Scoop" "scoop-gcc.log" "Usually 2-10 minutes."
+if (-not (Test-CommandExists "ninja")) {
+    if (Ask-YesNo "ninja was not found. Install ninja with Scoop now?") {
+        Install-ScoopIfMissing
+        Invoke-Quiet "Installing Ninja with Scoop" "scoop-ninja.log" { scoop install ninja } "Usually under 2 minutes."
+        $env:PATH = "$env:USERPROFILE\scoop\shims;$env:PATH"
+    }
 }
 
 $QtPrefix = Find-QtPrefix

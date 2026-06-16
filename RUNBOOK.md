@@ -79,7 +79,14 @@ macOS:
 ./scripts/build-qt-macos.sh
 ```
 
-If Qt or build dependencies are missing, the scripts ask before installing anything. Windows uses vcpkg and builds `qtbase:x64-mingw-dynamic` when a usable Qt installation is not already available.
+If Qt or build dependencies are missing, the scripts ask before installing anything. On Windows, missing tools are installed through Scoop. If Scoop is missing, the scripts ask first and then install it for the current user with:
+
+```powershell
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+Invoke-RestMethod -Uri https://get.scoop.sh | Invoke-Expression
+```
+
+Windows uses vcpkg and builds `qtbase:x64-mingw-dynamic` when a usable Qt installation is not already available.
 
 Build output:
 
