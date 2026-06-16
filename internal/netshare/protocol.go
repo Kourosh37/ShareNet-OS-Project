@@ -2,6 +2,8 @@ package netshare
 
 import (
 	"bufio"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,13 +13,31 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
+	"unicode/utf8"
 )
 
-const maxFileNameLen = 180
+const maxFileNameRunes = 180
+const transferBufferSize = 64 * 1024
+const progressInterval = 100 * time.Millisecond
+const finalResponseTimeout = 2 * time.Minute
+
+const (
+	TypeRequestList     = "REQUEST_LIST"
+	TypeListLegacy      = "list"
+	TypeUploadStart     = "UPLOAD_START"
+	TypeUploadLegacy    = "upload"
+	TypeDownloadRequest = "DOWNLOAD_REQUEST"
+	TypeDownloadLegacy  = "download"
+	TypeDeleteRequest   = "DELETE_REQUEST"
+	TypeDeleteLegacy    = "delete"
+)
 
 type FileInfo struct {
-	Name string `json:"name"`
-	Size int64  `json:"size"`
+	Name    string `json:"name"`
+	Size    int64  `json:"size"`
+	ModTime string `json:"mod_time,omitempty"`
+	SHA256  string `json:"sha256,omitempty"`
 }
 
 type request struct {
@@ -36,15 +56,21 @@ type response struct {
 type ProgressFunc func(done, total int64)
 
 func cleanName(name string) (string, error) {
-	name = filepath.Base(strings.TrimSpace(name))
+	name = strings.ToValidUTF8(strings.TrimSpace(name), "")
+	name = filepath.Base(name)
 	if name == "." || name == "" {
 		return "", errors.New("empty filename")
 	}
-	if len(name) > maxFileNameLen {
+	if utf8.RuneCountInString(name) > maxFileNameRunes {
 		return "", errors.New("filename is too long")
 	}
-	if strings.ContainsAny(name, `/\`) {
+	if strings.ContainsAny(name, `/\<>:"|?*`) {
 		return "", errors.New("invalid filename")
+	}
+	for _, r := range name {
+		if r == 0 || r < 32 {
+			return "", errors.New("invalid filename")
+		}
 	}
 	return name, nil
 }
@@ -68,8 +94,9 @@ func readJSONLine(r *bufio.Reader, v any) error {
 }
 
 func copyWithProgress(dst io.Writer, src io.Reader, total int64, progress ProgressFunc) error {
-	buf := make([]byte, 64*1024)
+	buf := make([]byte, transferBufferSize)
 	var done int64
+	lastProgress := time.Now()
 	if progress != nil {
 		progress(0, total)
 	}
@@ -78,8 +105,9 @@ func copyWithProgress(dst io.Writer, src io.Reader, total int64, progress Progre
 		if n > 0 {
 			written, writeErr := dst.Write(buf[:n])
 			done += int64(written)
-			if progress != nil {
+			if progress != nil && (done == total || time.Since(lastProgress) >= progressInterval) {
 				progress(done, total)
+				lastProgress = time.Now()
 			}
 			if writeErr != nil {
 				return writeErr
@@ -111,7 +139,14 @@ func ListLocalFiles(dir string) ([]FileInfo, error) {
 		if err != nil {
 			continue
 		}
-		files = append(files, FileInfo{Name: entry.Name(), Size: info.Size()})
+		if strings.HasPrefix(entry.Name(), ".upload-") || strings.HasSuffix(entry.Name(), ".tmp") {
+			continue
+		}
+		files = append(files, FileInfo{
+			Name:    entry.Name(),
+			Size:    info.Size(),
+			ModTime: info.ModTime().Format("2006-01-02 15:04:05"),
+		})
 	}
 	sort.Slice(files, func(i, j int) bool {
 		return strings.ToLower(files[i].Name) < strings.ToLower(files[j].Name)
@@ -120,7 +155,11 @@ func ListLocalFiles(dir string) ([]FileInfo, error) {
 }
 
 func dial(addr string) (net.Conn, *bufio.Reader, error) {
-	conn, err := net.Dial("tcp", addr)
+	dialer := net.Dialer{
+		Timeout:   10 * time.Second,
+		KeepAlive: 30 * time.Second,
+	}
+	conn, err := dialer.Dial("tcp", addr)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -133,7 +172,7 @@ func List(addr string) ([]FileInfo, error) {
 		return nil, err
 	}
 	defer conn.Close()
-	if err := writeJSONLine(conn, request{Type: "list"}); err != nil {
+	if err := writeJSONLine(conn, request{Type: TypeRequestList}); err != nil {
 		return nil, err
 	}
 	var resp response
@@ -165,16 +204,31 @@ func Upload(addr, path string, progress ProgressFunc) error {
 		return err
 	}
 	defer conn.Close()
-	if err := writeJSONLine(conn, request{Type: "upload", Name: name, Size: info.Size()}); err != nil {
+	if info.Size() < 0 {
+		return errors.New("invalid file size")
+	}
+	if err := writeJSONLine(conn, request{Type: TypeUploadStart, Name: name, Size: info.Size()}); err != nil {
 		return err
+	}
+	var prep response
+	if err := readJSONLine(r, &prep); err != nil {
+		return fmt.Errorf("upload was rejected before transfer: %w", err)
+	}
+	if !prep.OK {
+		return errors.New(prep.Error)
 	}
 	if err := copyWithProgress(conn, file, info.Size(), progress); err != nil {
-		return err
+		return fmt.Errorf("upload transfer failed: %w", err)
 	}
+	if tcpConn, ok := conn.(*net.TCPConn); ok {
+		_ = tcpConn.CloseWrite()
+	}
+	_ = conn.SetReadDeadline(time.Now().Add(finalResponseTimeout))
 	var resp response
 	if err := readJSONLine(r, &resp); err != nil {
-		return err
+		return fmt.Errorf("upload finished but server response was lost: %w", err)
 	}
+	_ = conn.SetReadDeadline(time.Time{})
 	if !resp.OK {
 		return errors.New(resp.Error)
 	}
@@ -194,7 +248,7 @@ func Download(addr, name, dir string, progress ProgressFunc) (string, error) {
 		return "", err
 	}
 	defer conn.Close()
-	if err := writeJSONLine(conn, request{Type: "download", Name: clean}); err != nil {
+	if err := writeJSONLine(conn, request{Type: TypeDownloadRequest, Name: clean}); err != nil {
 		return "", err
 	}
 	var resp response
@@ -226,7 +280,7 @@ func Delete(addr, name string) error {
 		return err
 	}
 	defer conn.Close()
-	if err := writeJSONLine(conn, request{Type: "delete", Name: clean}); err != nil {
+	if err := writeJSONLine(conn, request{Type: TypeDeleteRequest, Name: clean}); err != nil {
 		return err
 	}
 	var resp response
@@ -237,6 +291,19 @@ func Delete(addr, name string) error {
 		return errors.New(resp.Error)
 	}
 	return nil
+}
+
+func SHA256File(path string) (string, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+	hash := sha256.New()
+	if _, err := io.Copy(hash, file); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(hash.Sum(nil)), nil
 }
 
 func FormatSize(size int64) string {

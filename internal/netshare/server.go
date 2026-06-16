@@ -9,13 +9,18 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 )
+
+const uploadIdleTimeout = 5 * time.Minute
 
 type Server struct {
 	Dir      string
 	Log      func(string)
 	listener net.Listener
 	mu       sync.Mutex
+	locksMu  sync.Mutex
+	locks    map[string]*sync.RWMutex
 }
 
 func (s *Server) Start(addr string) error {
@@ -64,25 +69,27 @@ func (s *Server) acceptLoop(ln net.Listener) {
 
 func (s *Server) handle(conn net.Conn) {
 	defer conn.Close()
+	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Minute))
 	r := bufio.NewReader(conn)
 	var req request
 	if err := readJSONLine(r, &req); err != nil {
 		s.writeError(conn, err)
 		return
 	}
+	_ = conn.SetDeadline(time.Time{})
 	switch req.Type {
-	case "list":
+	case TypeRequestList, TypeListLegacy:
 		files, err := ListLocalFiles(s.Dir)
 		if err != nil {
 			s.writeError(conn, err)
 			return
 		}
 		_ = writeJSONLine(conn, response{OK: true, Files: files})
-	case "upload":
+	case TypeUploadStart, TypeUploadLegacy:
 		s.handleUpload(conn, r, req)
-	case "download":
+	case TypeDownloadRequest, TypeDownloadLegacy:
 		s.handleDownload(conn, req)
-	case "delete":
+	case TypeDeleteRequest, TypeDeleteLegacy:
 		s.handleDelete(conn, req)
 	default:
 		s.writeError(conn, errors.New("unknown request"))
@@ -90,21 +97,58 @@ func (s *Server) handle(conn net.Conn) {
 }
 
 func (s *Server) handleUpload(conn net.Conn, r *bufio.Reader, req request) {
+	if req.Size < 0 {
+		s.writeError(conn, errors.New("invalid file size"))
+		return
+	}
 	name, err := cleanName(req.Name)
 	if err != nil {
 		s.writeError(conn, err)
 		return
 	}
-	out, err := os.Create(filepath.Join(s.Dir, name))
+	lock := s.fileLock(name)
+	lock.Lock()
+	defer lock.Unlock()
+
+	tmp, err := os.CreateTemp(s.Dir, ".upload-*.tmp")
 	if err != nil {
 		s.writeError(conn, err)
 		return
 	}
-	defer out.Close()
-	if _, err := io.CopyN(out, r, req.Size); err != nil {
+	tmpPath := tmp.Name()
+	committed := false
+	defer func() {
+		_ = tmp.Close()
+		if !committed {
+			_ = os.Remove(tmpPath)
+		}
+	}()
+
+	if req.Type == TypeUploadStart {
+		if err := writeJSONLine(conn, response{OK: true}); err != nil {
+			return
+		}
+	}
+
+	written, err := receiveUpload(conn, tmp, r, req.Size)
+	if err != nil {
 		s.writeError(conn, err)
 		return
 	}
+	if written != req.Size {
+		s.writeError(conn, io.ErrShortWrite)
+		return
+	}
+	if err := tmp.Close(); err != nil {
+		s.writeError(conn, err)
+		return
+	}
+	finalPath := filepath.Join(s.Dir, name)
+	if err := replaceFile(tmpPath, finalPath); err != nil {
+		s.writeError(conn, err)
+		return
+	}
+	committed = true
 	s.log(fmt.Sprintf("uploaded %s (%s)", name, FormatSize(req.Size)))
 	_ = writeJSONLine(conn, response{OK: true})
 }
@@ -115,6 +159,10 @@ func (s *Server) handleDownload(conn net.Conn, req request) {
 		s.writeError(conn, err)
 		return
 	}
+	lock := s.fileLock(name)
+	lock.RLock()
+	defer lock.RUnlock()
+
 	file, err := os.Open(filepath.Join(s.Dir, name))
 	if err != nil {
 		s.writeError(conn, err)
@@ -139,6 +187,10 @@ func (s *Server) handleDelete(conn net.Conn, req request) {
 		s.writeError(conn, err)
 		return
 	}
+	lock := s.fileLock(name)
+	lock.Lock()
+	defer lock.Unlock()
+
 	if err := os.Remove(filepath.Join(s.Dir, name)); err != nil {
 		s.writeError(conn, err)
 		return
@@ -156,4 +208,83 @@ func (s *Server) log(msg string) {
 	if s.Log != nil {
 		s.Log(msg)
 	}
+}
+
+func (s *Server) fileLock(name string) *sync.RWMutex {
+	s.locksMu.Lock()
+	defer s.locksMu.Unlock()
+	if s.locks == nil {
+		s.locks = make(map[string]*sync.RWMutex)
+	}
+	lock := s.locks[name]
+	if lock == nil {
+		lock = &sync.RWMutex{}
+		s.locks[name] = lock
+	}
+	return lock
+}
+
+func replaceFile(src, dst string) error {
+	if err := os.Rename(src, dst); err == nil {
+		return nil
+	}
+	if err := os.Remove(dst); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return os.Rename(src, dst)
+}
+
+func receiveUpload(conn net.Conn, dst io.Writer, src *bufio.Reader, total int64) (int64, error) {
+	buf := make([]byte, transferBufferSize)
+	var done int64
+	for done < total {
+		if err := conn.SetReadDeadline(time.Now().Add(uploadIdleTimeout)); err != nil {
+			return done, err
+		}
+		want := int64(len(buf))
+		if remaining := total - done; remaining < want {
+			want = remaining
+		}
+		n, readErr := src.Read(buf[:int(want)])
+		if n > 0 {
+			written, writeErr := dst.Write(buf[:n])
+			done += int64(written)
+			if writeErr != nil {
+				_ = drainUpload(conn, src, total-done)
+				_ = conn.SetReadDeadline(time.Time{})
+				return done, fmt.Errorf("server could not save uploaded data: %w", writeErr)
+			}
+			if written != n {
+				_ = drainUpload(conn, src, total-done)
+				_ = conn.SetReadDeadline(time.Time{})
+				return done, io.ErrShortWrite
+			}
+		}
+		if done >= total {
+			break
+		}
+		if readErr != nil {
+			_ = conn.SetReadDeadline(time.Time{})
+			return done, fmt.Errorf("server stopped receiving upload after %s of %s: %w", FormatSize(done), FormatSize(total), readErr)
+		}
+	}
+	_ = conn.SetReadDeadline(time.Time{})
+	return done, nil
+}
+
+func drainUpload(conn net.Conn, src *bufio.Reader, remaining int64) error {
+	buf := make([]byte, transferBufferSize)
+	for remaining > 0 {
+		_ = conn.SetReadDeadline(time.Now().Add(uploadIdleTimeout))
+		want := int64(len(buf))
+		if remaining < want {
+			want = remaining
+		}
+		n, err := src.Read(buf[:int(want)])
+		remaining -= int64(n)
+		if err != nil {
+			return err
+		}
+	}
+	return conn.SetReadDeadline(time.Time{})
 }
