@@ -1,0 +1,10 @@
+{
+  "name": "sharenet-fltk",
+  "version-string": "1.0.0",
+  "dependencies": [
+    {
+      "name": "fltk",
+      "default-features": false
+    }
+  ]
+}

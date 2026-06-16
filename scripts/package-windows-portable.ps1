@@ -9,14 +9,14 @@ trap {
 $Root = Resolve-Path (Join-Path $PSScriptRoot "..")
 $Dist = Join-Path $Root "dist"
 $WinOut = Join-Path $Dist "windows"
-$QtOut = Join-Path $Dist "qt-windows"
+$FltkOut = Join-Path $Dist "fltk-windows"
 $PackageRoot = Join-Path $Dist "package"
 $Portable = Join-Path $PackageRoot "ShareNet-Windows-Portable"
 $ZipPath = Join-Path $Dist "ShareNet-Windows-Portable.zip"
 $SfxPath = Join-Path $Dist "ShareNet-Windows-Portable.exe"
 $LogDir = Join-Path $Root "build\logs"
 New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
-$TotalSteps = 6
+$TotalSteps = 4
 $script:StepIndex = 0
 $script:LastProgressLength = 0
 
@@ -88,8 +88,16 @@ function Invoke-Quiet {
     @("[$(Get-Date)] START: $Title", "Estimate: $(if ($Estimate) { $Estimate } else { 'short' })", "") |
         Set-Content -LiteralPath $LogPath -Encoding UTF8
 
-    & $Command *>> $LogPath
-    if ($LASTEXITCODE -ne 0) {
+    $PreviousErrorActionPreference = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    $global:LASTEXITCODE = 0
+    try {
+        & $Command *>> $LogPath
+        $ExitCode = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $PreviousErrorActionPreference
+    }
+    if ($ExitCode -ne 0) {
         $Timer.Stop()
         Add-Content -LiteralPath $LogPath -Encoding UTF8 -Value @("", "[$(Get-Date)] FAILED after $(Format-Duration $Timer.Elapsed)")
         Write-Host "Failed. Last log lines from ${LogPath}:"
@@ -158,18 +166,18 @@ Invoke-Quiet "Building Windows CLI executables" "package-build-windows.log" {
 } "Usually under 2 minutes."
 
 try {
-    Invoke-Quiet "Building Qt Windows executables" "package-build-qt-windows.log" {
-        & powershell -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "build-qt-windows.ps1")
-    } "First Qt build can take 30-120 minutes; cached reruns are much faster."
+    Invoke-Quiet "Building FLTK Windows executables" "package-build-fltk-windows.log" {
+        & powershell -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "build-fltk-windows.ps1")
+    } "Usually quick; cached reruns are faster."
 } catch {
-    Write-Host "Qt packaging skipped: $($_.Exception.Message)"
+    Write-Host "FLTK packaging skipped: $($_.Exception.Message)"
 }
 
 Remove-Item -Recurse -Force $Portable -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force -Path $Portable | Out-Null
 
 Copy-DirectoryContents $WinOut (Join-Path $Portable "windows")
-Copy-DirectoryContents $QtOut (Join-Path $Portable "qt-windows")
+Copy-DirectoryContents $FltkOut (Join-Path $Portable "fltk-windows")
 
 New-Item -ItemType Directory -Force -Path (Join-Path $Portable "server_files") | Out-Null
 New-Item -ItemType Directory -Force -Path (Join-Path $Portable "client_files") | Out-Null
@@ -184,15 +192,15 @@ cd /d "%~dp0"
 cls
 echo ShareNet Portable
 echo.
-echo 1. Run Qt Server
-echo 2. Run Qt Client
+echo 1. Run FLTK Server
+echo 2. Run FLTK Client
 echo 3. Run CLI Server
 echo 4. Run CLI Client
 echo 5. Exit
 echo.
 set /p choice=Select:
-if "%choice%"=="1" if exist "qt-windows\sharenet_qt_server.exe" start "" "qt-windows\sharenet_qt_server.exe" & goto menu
-if "%choice%"=="2" if exist "qt-windows\sharenet_qt_client.exe" start "" "qt-windows\sharenet_qt_client.exe" & goto menu
+if "%choice%"=="1" if exist "fltk-windows\sharenet_fltk_server.exe" start "" "fltk-windows\sharenet_fltk_server.exe" & goto menu
+if "%choice%"=="2" if exist "fltk-windows\sharenet_fltk_client.exe" start "" "fltk-windows\sharenet_fltk_client.exe" & goto menu
 if "%choice%"=="3" start "ShareNet CLI Server" cmd /k "windows\sharenet_server.exe" & goto menu
 if "%choice%"=="4" start "ShareNet CLI Client" cmd /k "windows\sharenet_client.exe" & goto menu
 if "%choice%"=="5" exit /b 0
@@ -205,7 +213,7 @@ Set-Content -LiteralPath (Join-Path $Portable "ShareNetLauncher.cmd") -Value $La
 $Readme = @'
 ShareNet Windows Portable
 
-This folder is self-contained. No compiler or Qt installation is required on the target computer.
+This folder is self-contained. No compiler or FLTK installation is required on the target computer.
 
 Run ShareNetLauncher.cmd and choose the server/client variant you want.
 

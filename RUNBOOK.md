@@ -1,11 +1,11 @@
 # ShareNet Runbook
 
-This runbook is the operational guide for the current ShareNet project. The maintained UI is Qt. The CLI tools are kept for protocol testing and simple demos.
+This runbook is the operational guide for the current ShareNet project. The maintained UI is FLTK. The CLI tools are kept for protocol testing and simple demos.
 
 ## 1. Variants
 
 - CLI server/client: terminal tools written in C.
-- Qt server/client: modern GUI built with Qt Widgets and Qt Network.
+- FLTK server/client: lightweight cross-platform GUI.
 
 ## 2. Clean Workspace
 
@@ -43,29 +43,28 @@ dist\windows\sharenet_server.exe
 dist\windows\sharenet_client.exe
 ```
 
-## 4. Build Qt GUI
+## 4. Build FLTK GUI
 
 Windows:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts\build-qt-windows.ps1
+powershell -ExecutionPolicy Bypass -File scripts\build-fltk-windows.ps1
 ```
 
 Linux:
 
 ```sh
-./scripts/build-qt-linux.sh
+./scripts/build-fltk-linux.sh
 ```
 
 macOS:
 
 ```sh
-./scripts/build-qt-macos.sh
+./scripts/build-fltk-macos.sh
 ```
 
-If Qt is missing, the scripts ask before attempting installation. On Windows,
-the Qt script uses `vcpkg` and installs `qtbase:x64-mingw-dynamic`; it also
-uses an existing Qt installation when `QT_DIR` or `CMAKE_PREFIX_PATH` is set.
+If FLTK is missing, the scripts ask before attempting installation. On Windows,
+the FLTK script uses `vcpkg` and installs `fltk:x64-mingw-dynamic`.
 
 Build scripts keep terminal output short. Verbose compiler, package manager,
 CMake, and vcpkg output is written to:
@@ -78,25 +77,25 @@ Each log includes the step start time, estimate, completion time, and elapsed
 duration. The terminal shows numbered steps, stage percentages, and short
 failure tails.
 
-Qt outputs:
+FLTK outputs:
 
 ```text
-sharenet_qt_server
-sharenet_qt_client
+sharenet_fltk_server
+sharenet_fltk_client
 ```
 
 On Windows they are placed under:
 
 ```text
-dist\qt-windows\
+dist\fltk-windows\
 ```
 
-## 5. Run Qt
+## 5. Run FLTK
 
 Start server first:
 
 ```text
-sharenet_qt_server
+sharenet_fltk_server
 ```
 
 Recommended bind settings:
@@ -107,7 +106,7 @@ Recommended bind settings:
 Then start:
 
 ```text
-sharenet_qt_client
+sharenet_fltk_client
 ```
 
 Client workflow:
@@ -118,7 +117,7 @@ Client workflow:
 4. Click List Files.
 5. Select a server file row.
 6. Choose a download folder.
-7. Download and verify the success tick.
+7. Download and verify progress reaches 100%.
 
 Server workflow:
 
@@ -180,13 +179,12 @@ dist\ShareNet-Windows-Portable.zip
 dist\ShareNet-Windows-Portable.exe
 ```
 
-The package includes CLI and Qt outputs when Qt is available. It also includes runtime files needed on a target Windows computer.
+The package includes CLI and FLTK outputs when FLTK is available. It also includes runtime files needed on a target Windows computer.
 
 ## 9. Troubleshooting
 
 - `Address already in use`: stop the existing server or use another port.
 - Client cannot connect: verify IP, port, firewall rules, and that the server is listening.
-- Qt build fails on Windows: rerun `scripts\build-qt-windows.ps1`, answer `y`
-  when asked to install Qt, or set `QT_DIR`/`CMAKE_PREFIX_PATH` for an existing
-  Qt installation.
+- FLTK build fails on Windows: rerun `scripts\build-fltk-windows.ps1`, answer `y`
+  if asked to install missing dependencies, and inspect `build\logs\`.
 - Portable app does not start: keep all generated DLLs next to their executables.

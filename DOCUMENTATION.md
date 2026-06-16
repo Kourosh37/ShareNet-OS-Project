@@ -1,35 +1,19 @@
-# مستندات ShareNet-Phase1-C
+# ShareNet Documentation
 
-## 1. معرفی پروژه
+ShareNet is a client-server file sharing project implemented with C sockets and
+a compact binary protocol. The maintained graphical interface is FLTK, keeping
+build time and runtime dependencies small.
 
-ShareNet یک سیستم اشتراک فایل با معماری Client-Server است. هسته انتقال فایل با زبان C و TCP socket پیاده‌سازی شده و رابط گرافیکی اصلی پروژه با Qt ساخته شده است.
+## Executables
 
-## 2. هدف فاز اول
+- `sharenet_server`: CLI server
+- `sharenet_client`: CLI client
+- `sharenet_fltk_server`: FLTK server GUI
+- `sharenet_fltk_client`: FLTK client GUI
 
-هدف فاز اول، انتقال درست فایل در شبکه داخلی با پروتکل binary، آپلود، دانلود، لیست فایل‌ها و بررسی صحت فایل نهایی است.
+## Protocol
 
-## 3. معماری کلی
-
-سیستم شامل یک سرور مرکزی و کلاینت‌ها است. سرور فایل‌ها را در `server_files` نگهداری می‌کند. کلاینت فایل آپلود می‌کند، لیست فایل‌ها را دریافت می‌کند و فایل انتخابی را دانلود می‌کند.
-
-## 4. ابزارهای اجرایی
-
-- `sharenet_server`: سرور CLI
-- `sharenet_client`: کلاینت CLI
-- `sharenet_qt_server`: سرور Qt
-- `sharenet_qt_client`: کلاینت Qt
-
-## 5. نقش سرور
-
-سرور روی IP و port مشخص listen می‌کند. در نسخه Qt، فایل‌های موجود در `server_files` داخل جدول نمایش داده می‌شوند و امکان حذف یا copy/download فایل انتخاب‌شده وجود دارد.
-
-## 6. نقش کلاینت
-
-کلاینت Qt امکان انتخاب فایل آپلود، انتخاب پوشه دانلود، مشاهده فایل‌های سرور، دانلود فایل انتخاب‌شده و مشاهده progress bar را فراهم می‌کند.
-
-## 7. پروتکل ارتباطی
-
-پروتکل binary است. هر پیام با `MessageHeader` شروع می‌شود:
+Every message starts with:
 
 ```c
 typedef struct {
@@ -38,9 +22,7 @@ typedef struct {
 } MessageHeader;
 ```
 
-همه فیلدهای عددی ارسالی روی شبکه با network byte order منتقل می‌شوند.
-
-## 8. ساختار ChunkHeader
+File data is transferred in chunks:
 
 ```c
 typedef struct {
@@ -50,86 +32,41 @@ typedef struct {
 } ChunkHeader;
 ```
 
-هر chunk شامل header و داده واقعی فایل است.
+All integer fields are sent in network byte order.
 
-## 9. پیام‌های پروتکل
+## GUI Behavior
 
-- `MSG_REQUEST_LIST`
-- `MSG_LIST_RESPONSE`
-- `MSG_REQUEST_UPLOAD`
-- `MSG_UPLOAD_RESPONSE`
-- `MSG_DOWNLOAD_REQUEST`
-- `MSG_CHUNK_DATA`
-- `MSG_DONE_TRANSFER`
-- `MSG_ERROR`
-- `MSG_EXIT`
+The FLTK server lets the user configure bind IP and port, start or stop the TCP
+server, refresh files in `server_files`, delete a selected file, and copy a
+selected server file to another path.
 
-## 10. روند آپلود
+The FLTK client lets the user configure server IP and port, choose any upload
+file, choose a download folder, list server files, upload files with progress,
+and download the selected server file with progress.
 
-کلاینت metadata فایل را ارسال می‌کند. سپس فایل را به chunkهای پشت سر هم تقسیم می‌کند و با `MSG_CHUNK_DATA` می‌فرستد. در پایان `MSG_DONE_TRANSFER` ارسال می‌شود.
+## Builds
 
-## 11. روند دانلود
-
-کلاینت نام فایل را ارسال می‌کند. سرور فایل را از `server_files` پیدا می‌کند و chunk به chunk برای کلاینت می‌فرستد. کلاینت فایل را در پوشه دانلود انتخاب‌شده بازسازی می‌کند.
-
-## 12. امنیت ساده
-
-نام فایل نباید خالی باشد و نباید شامل `/`، `\` یا `..` باشد. این کنترل از path traversal ساده جلوگیری می‌کند.
-
-## 13. Build CLI
-
-Linux/WSL:
+CLI:
 
 ```sh
 make
 ```
 
-Windows:
+Windows CLI:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\build-windows.ps1
 ```
 
-## 14. Build Qt
-
-Windows:
+FLTK GUI:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts\build-qt-windows.ps1
+powershell -ExecutionPolicy Bypass -File scripts\build-fltk-windows.ps1
 ```
-
-Linux:
 
 ```sh
-./scripts/build-qt-linux.sh
+./scripts/build-fltk-linux.sh
+./scripts/build-fltk-macos.sh
 ```
 
-macOS:
-
-```sh
-./scripts/build-qt-macos.sh
-```
-
-## 15. تست صحت فایل
-
-```sh
-diff client_files/sample.txt downloads/sample.txt
-sha256sum client_files/sample.txt downloads/sample.txt
-```
-
-اگر `diff` خروجی نداشته باشد و hashها برابر باشند، انتقال صحیح است.
-
-## 16. بسته Portable ویندوز
-
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts\package-windows-portable.ps1
-```
-
-این اسکریپت بسته portable شامل خروجی‌های لازم و runtimeها را در `dist` می‌سازد.
-
-## 17. محدودیت‌های فاز اول
-
-- احراز هویت وجود ندارد.
-- رمزنگاری ارتباط وجود ندارد.
-- resume برای انتقال ناقص پیاده‌سازی نشده است.
-- پروتکل برای نیازهای فاز اول طراحی شده است.
+Verbose build logs are written to `build/logs`.

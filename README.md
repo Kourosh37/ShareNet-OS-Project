@@ -1,6 +1,6 @@
 # ShareNet-Phase1-C
 
-ShareNet is a C-based TCP file sharing project with a binary protocol, chunked transfers, a single-client server model, CLI tools, and a Qt GUI.
+ShareNet is a C-based TCP file sharing project with a binary protocol, chunked transfers, CLI tools, and a lightweight FLTK GUI.
 
 ## Features
 
@@ -9,7 +9,7 @@ ShareNet is a C-based TCP file sharing project with a binary protocol, chunked t
 - Chunked upload and download
 - Safe filename validation against path traversal
 - CLI server and client
-- Qt server and client
+- FLTK server and client
 - Windows, Linux, and macOS build scripts
 - Windows portable package script
 
@@ -20,12 +20,12 @@ CLI:
 - C compiler
 - make on Linux/macOS or WSL
 
-Qt GUI:
+FLTK GUI:
 
 - CMake
-- Qt 6 preferred, Qt 5 fallback supported by CMake
 - C++17 compiler
-- Windows Qt auto-install uses `vcpkg` with `qtbase:x64-mingw-dynamic`
+- FLTK
+- Windows FLTK auto-install uses `vcpkg` with `fltk:x64-mingw-dynamic`
 
 The build scripts ask before installing missing dependencies.
 
@@ -46,29 +46,29 @@ Windows:
 powershell -ExecutionPolicy Bypass -File scripts\build-windows.ps1
 ```
 
-## Build Qt GUI
+## Build FLTK GUI
 
 Windows:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts\build-qt-windows.ps1
+powershell -ExecutionPolicy Bypass -File scripts\build-fltk-windows.ps1
 ```
 
 Linux:
 
 ```sh
-./scripts/build-qt-linux.sh
+./scripts/build-fltk-linux.sh
 ```
 
 macOS:
 
 ```sh
-./scripts/build-qt-macos.sh
+./scripts/build-fltk-macos.sh
 ```
 
-## Qt Server
+## FLTK Server
 
-The Qt server supports:
+The FLTK server supports:
 
 - configurable bind IP and port
 - file table for `server_files`
@@ -76,9 +76,9 @@ The Qt server supports:
 - copy/download selected server file to a local path
 - protocol-compatible TCP service
 
-## Qt Client
+## FLTK Client
 
-The Qt client supports:
+The FLTK client supports:
 
 - configurable server IP and port
 - native file picker for uploads
@@ -86,8 +86,7 @@ The Qt client supports:
 - selected-row download
 - selectable download folder
 - progress bar for upload/download
-- animated success tick
-- async networking through `QTcpSocket`
+- background networking so the UI stays responsive
 
 ## CLI Demo
 

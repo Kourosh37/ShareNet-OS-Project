@@ -4,11 +4,11 @@ sharenet_client
 *.o
 *.out
 *.log
-.sharenet_qt_client.ini
+.sharenet_fltk_client.ini
 build/
 dist/
 vcpkg_installed/
-src/qt/vcpkg_installed/
+src/fltk/vcpkg_installed/
 server_files/*
 downloads/*
 !server_files/.gitkeep
