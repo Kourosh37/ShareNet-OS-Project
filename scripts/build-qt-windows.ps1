@@ -78,7 +78,7 @@ function Install-VcpkgIfMissing {
     }
 
     Write-Host "Installing vcpkg with Scoop..."
-    scoop install vcpkg
+    scoop install vcpkg | Out-Host
     $VcpkgRoot = Find-VcpkgRoot
     if (-not $VcpkgRoot) {
         throw "vcpkg installation finished, but vcpkg.exe was not found. Set VCPKG_ROOT manually."
@@ -97,12 +97,19 @@ function Install-Qt {
     if (-not (Test-Path (Join-Path $VcpkgRoot "scripts\buildsystems\vcpkg.cmake"))) {
         $Bootstrap = Join-Path $VcpkgRoot "bootstrap-vcpkg.bat"
         if (Test-Path $Bootstrap) {
-            & $Bootstrap
+            & $Bootstrap | Out-Host
         }
     }
 
+    $env:VCPKG_DEFAULT_TRIPLET = $Triplet
+    $env:VCPKG_DEFAULT_HOST_TRIPLET = $Triplet
+
     Write-Host "Installing Qt base with vcpkg. This can take a while on the first run..."
-    & $VcpkgExe install "qtbase:$Triplet"
+    & $VcpkgExe install "qtbase" "--triplet=$Triplet" "--host-triplet=$Triplet" | Out-Host
+    if ($LASTEXITCODE -ne 0) {
+        throw "vcpkg failed to install qtbase for $Triplet. Check the error above."
+    }
+
     return $VcpkgRoot
 }
 
@@ -177,10 +184,14 @@ if (Test-CommandExists "ninja") {
 }
 
 if ($UseVcpkg) {
+    $env:VCPKG_DEFAULT_TRIPLET = $Triplet
+    $env:VCPKG_DEFAULT_HOST_TRIPLET = $Triplet
+
     $Toolchain = Join-Path $VcpkgRoot "scripts\buildsystems\vcpkg.cmake"
     $ConfigureArgs += @(
         "-DCMAKE_TOOLCHAIN_FILE=$Toolchain",
         "-DVCPKG_TARGET_TRIPLET=$Triplet",
+        "-DVCPKG_HOST_TRIPLET=$Triplet",
         "-DCMAKE_C_COMPILER=gcc",
         "-DCMAKE_CXX_COMPILER=g++"
     )
