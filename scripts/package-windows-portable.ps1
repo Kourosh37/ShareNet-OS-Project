@@ -1,4 +1,10 @@
 $ErrorActionPreference = "Stop"
+$ErrorView = "ConciseView"
+
+trap {
+    Write-Host "Error: $($_.Exception.Message)"
+    exit 1
+}
 
 $Root = Resolve-Path (Join-Path $PSScriptRoot "..")
 $Dist = Join-Path $Root "dist"
@@ -10,6 +16,33 @@ $ZipPath = Join-Path $Dist "ShareNet-Windows-Portable.zip"
 $SfxPath = Join-Path $Dist "ShareNet-Windows-Portable.exe"
 $LogDir = Join-Path $Root "build\logs"
 New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
+$ProgressActivity = "ShareNet Windows Portable Package"
+$TotalSteps = 6
+$script:StepIndex = 0
+
+function Format-Duration {
+    param([TimeSpan]$Duration)
+    if ($Duration.TotalHours -ge 1) { return "{0:h\:mm\:ss}" -f $Duration }
+    return "{0:mm\:ss}" -f $Duration
+}
+
+function Start-Step {
+    param([string]$Title, [string]$Estimate)
+    $script:StepIndex += 1
+    $Percent = [math]::Round((($script:StepIndex - 1) / $TotalSteps) * 100)
+    Write-Progress -Activity $ProgressActivity -Status "$Title (starting)" -PercentComplete $Percent
+    Write-Host ("[{0}/{1}] {2}" -f $script:StepIndex, $TotalSteps, $Title)
+    if ($Estimate) { Write-Host "    Estimate: $Estimate" }
+    return [System.Diagnostics.Stopwatch]::StartNew()
+}
+
+function Complete-Step {
+    param([string]$Title, [System.Diagnostics.Stopwatch]$Timer)
+    $Timer.Stop()
+    $Percent = [math]::Round(($script:StepIndex / $TotalSteps) * 100)
+    Write-Progress -Activity $ProgressActivity -Status "$Title completed in $(Format-Duration $Timer.Elapsed)" -PercentComplete $Percent
+    Write-Host "    Done in $(Format-Duration $Timer.Elapsed)"
+}
 
 function Ask-YesNo {
     param([string]$Question)
@@ -26,28 +59,37 @@ function Invoke-Quiet {
     param(
         [string]$Title,
         [string]$LogName,
-        [scriptblock]$Command
+        [scriptblock]$Command,
+        [string]$Estimate = ""
     )
 
     $LogPath = Join-Path $LogDir $LogName
-    Write-Host "$Title..."
-    & $Command *> $LogPath
+    $Timer = Start-Step $Title $Estimate
+    @("[$(Get-Date)] START: $Title", "Estimate: $(if ($Estimate) { $Estimate } else { 'short' })", "") |
+        Set-Content -LiteralPath $LogPath -Encoding UTF8
+
+    & $Command *>> $LogPath
     if ($LASTEXITCODE -ne 0) {
+        $Timer.Stop()
+        Add-Content -LiteralPath $LogPath -Encoding UTF8 -Value @("", "[$(Get-Date)] FAILED after $(Format-Duration $Timer.Elapsed)")
         Write-Host "Failed. Last log lines from ${LogPath}:"
         Get-Content $LogPath -Tail 80
         throw "$Title failed. Full log: $LogPath"
     }
+
+    Add-Content -LiteralPath $LogPath -Encoding UTF8 -Value @("", "[$(Get-Date)] DONE after $(Format-Duration $Timer.Elapsed)")
+    Complete-Step $Title $Timer
 }
 
 function Install-7Zip {
     if (Test-CommandExists "scoop") {
-        Invoke-Quiet "Installing 7-Zip with Scoop" "scoop-7zip.log" { scoop install 7zip }
+        Invoke-Quiet "Installing 7-Zip with Scoop" "scoop-7zip.log" { scoop install 7zip } "Usually 1-3 minutes."
         return
     }
     if (Test-CommandExists "winget") {
         Invoke-Quiet "Installing 7-Zip with winget" "winget-7zip.log" {
             winget install --id 7zip.7zip -e --accept-package-agreements --accept-source-agreements
-        }
+        } "Usually 1-3 minutes."
         return
     }
     throw "No supported package manager found for 7-Zip."
@@ -93,12 +135,12 @@ function Copy-DirectoryContents {
 Write-Host "Building Windows CLI executables..."
 Invoke-Quiet "Building Windows CLI executables" "package-build-windows.log" {
     & powershell -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "build-windows.ps1")
-}
+} "Usually under 2 minutes."
 
 try {
     Invoke-Quiet "Building Qt Windows executables" "package-build-qt-windows.log" {
         & powershell -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "build-qt-windows.ps1")
-    }
+    } "First Qt build can take 30-120 minutes; cached reruns are much faster."
 } catch {
     Write-Host "Qt packaging skipped: $($_.Exception.Message)"
 }
@@ -152,7 +194,9 @@ Keep DLL files next to the executables. Do not move individual EXE files out of 
 Set-Content -LiteralPath (Join-Path $Portable "README-PORTABLE.txt") -Value $Readme -Encoding UTF8
 
 Remove-Item -Force $ZipPath -ErrorAction SilentlyContinue
+$ZipTimer = Start-Step "Creating portable ZIP" "Usually under 5 minutes."
 Compress-Archive -Path $Portable -DestinationPath $ZipPath -Force
+Complete-Step "Creating portable ZIP" $ZipTimer
 Write-Host "Portable ZIP written to $ZipPath"
 
 $SevenZip = Find-7Zip
@@ -167,7 +211,9 @@ if ($SevenZip) {
     $Archive7z = Join-Path $PackageRoot "ShareNet-Windows-Portable.7z"
     Remove-Item -Force $Archive7z, $SfxPath -ErrorAction SilentlyContinue
     Push-Location $PackageRoot
-    & $SevenZip a -t7z $Archive7z "ShareNet-Windows-Portable\*" | Out-Null
+    Invoke-Quiet "Creating 7z archive" "package-7z.log" {
+        & $SevenZip a -t7z $Archive7z "ShareNet-Windows-Portable\*"
+    } "Usually under 5 minutes."
     Pop-Location
 
     $SfxModule = Find-7ZipSfx
@@ -194,3 +240,4 @@ RunProgram="ShareNetLauncher.cmd"
 } else {
     Write-Host "7-Zip is unavailable. ZIP package is ready; single EXE was skipped."
 }
+Write-Progress -Activity $ProgressActivity -Completed

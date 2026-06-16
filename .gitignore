@@ -7,6 +7,8 @@ sharenet_client
 .sharenet_qt_client.ini
 build/
 dist/
+vcpkg_installed/
+src/qt/vcpkg_installed/
 server_files/*
 downloads/*
 !server_files/.gitkeep

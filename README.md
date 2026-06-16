@@ -29,6 +29,9 @@ Qt GUI:
 
 The build scripts ask before installing missing dependencies.
 
+Build scripts keep console output concise. Full logs, timings, and failure
+details are written to `build\logs\`.
+
 ## Build CLI
 
 Linux/WSL:

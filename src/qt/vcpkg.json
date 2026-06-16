@@ -1,0 +1,20 @@
+{
+  "name": "sharenet-qt",
+  "version-string": "1.0.0",
+  "dependencies": [
+    {
+      "name": "qtbase",
+      "default-features": false,
+      "features": [
+        "freetype",
+        "gui",
+        "harfbuzz",
+        "jpeg",
+        "network",
+        "pcre2",
+        "png",
+        "widgets"
+      ]
+    }
+  ]
+}

@@ -1,4 +1,10 @@
 $ErrorActionPreference = "Stop"
+$ErrorView = "ConciseView"
+
+trap {
+    Write-Host "Error: $($_.Exception.Message)"
+    exit 1
+}
 
 $Root = Resolve-Path (Join-Path $PSScriptRoot "..")
 $Build = Join-Path $Root "build\qt-windows"
@@ -7,6 +13,36 @@ $LogDir = Join-Path $Root "build\logs"
 New-Item -ItemType Directory -Force -Path $Build, $Out, $LogDir | Out-Null
 
 $Triplet = "x64-mingw-dynamic"
+$ManifestDir = Join-Path $Root "src\qt"
+$ProgressActivity = "ShareNet Qt Windows Build"
+$TotalSteps = 6
+$script:StepIndex = 0
+
+function Format-Duration {
+    param([TimeSpan]$Duration)
+    if ($Duration.TotalHours -ge 1) { return "{0:h\:mm\:ss}" -f $Duration }
+    return "{0:mm\:ss}" -f $Duration
+}
+
+function Start-Step {
+    param([string]$Title, [string]$Estimate)
+    $script:StepIndex += 1
+    $Percent = [math]::Round((($script:StepIndex - 1) / $TotalSteps) * 100)
+    Write-Progress -Activity $ProgressActivity -Status "$Title (starting)" -PercentComplete $Percent
+    Write-Host ("[{0}/{1}] {2}" -f $script:StepIndex, $TotalSteps, $Title)
+    if ($Estimate) {
+        Write-Host "    Estimate: $Estimate"
+    }
+    return [System.Diagnostics.Stopwatch]::StartNew()
+}
+
+function Complete-Step {
+    param([string]$Title, [System.Diagnostics.Stopwatch]$Timer)
+    $Timer.Stop()
+    $Percent = [math]::Round(($script:StepIndex / $TotalSteps) * 100)
+    Write-Progress -Activity $ProgressActivity -Status "$Title completed in $(Format-Duration $Timer.Elapsed)" -PercentComplete $Percent
+    Write-Host "    Done in $(Format-Duration $Timer.Elapsed)"
+}
 
 function Ask-YesNo {
     param([string]$Question)
@@ -23,17 +59,39 @@ function Invoke-Quiet {
     param(
         [string]$Title,
         [string]$LogName,
-        [scriptblock]$Command
+        [scriptblock]$Command,
+        [string]$Estimate = ""
     )
 
     $LogPath = Join-Path $LogDir $LogName
-    Write-Host "$Title..."
-    & $Command *> $LogPath
+    $Timer = Start-Step $Title $Estimate
+    $StartedAt = Get-Date
+    @(
+        "[$StartedAt] START: $Title"
+        "Estimate: $(if ($Estimate) { $Estimate } else { 'short' })"
+        ""
+    ) | Set-Content -LiteralPath $LogPath -Encoding UTF8
+
+    & $Command *>> $LogPath
     if ($LASTEXITCODE -ne 0) {
+        $Timer.Stop()
+        $FinishedAt = Get-Date
+        Add-Content -LiteralPath $LogPath -Encoding UTF8 -Value @(
+            ""
+            "[$FinishedAt] FAILED after $(Format-Duration $Timer.Elapsed)"
+        )
+        Write-Progress -Activity $ProgressActivity -Status "$Title failed after $(Format-Duration $Timer.Elapsed)" -PercentComplete ([math]::Round((($script:StepIndex - 1) / $TotalSteps) * 100))
         Write-Host "Failed. Last log lines from ${LogPath}:"
         Get-Content $LogPath -Tail 80
         throw "$Title failed. Full log: $LogPath"
     }
+
+    $FinishedAt = Get-Date
+    Add-Content -LiteralPath $LogPath -Encoding UTF8 -Value @(
+        ""
+        "[$FinishedAt] DONE after $(Format-Duration $Timer.Elapsed)"
+    )
+    Complete-Step $Title $Timer
 }
 
 function Find-VcpkgRoot {
@@ -96,7 +154,7 @@ function Install-VcpkgIfMissing {
     }
 
     Write-Host "Installing vcpkg with Scoop..."
-    Invoke-Quiet "Installing vcpkg" "scoop-vcpkg.log" { scoop install vcpkg }
+    Invoke-Quiet "Installing vcpkg" "scoop-vcpkg.log" { scoop install vcpkg } "Usually 1-5 minutes."
     $VcpkgRoot = Find-VcpkgRoot
     if (-not $VcpkgRoot) {
         throw "vcpkg installation finished, but vcpkg.exe was not found. Set VCPKG_ROOT manually."
@@ -115,17 +173,17 @@ function Install-Qt {
     if (-not (Test-Path (Join-Path $VcpkgRoot "scripts\buildsystems\vcpkg.cmake"))) {
         $Bootstrap = Join-Path $VcpkgRoot "bootstrap-vcpkg.bat"
         if (Test-Path $Bootstrap) {
-            Invoke-Quiet "Bootstrapping vcpkg" "vcpkg-bootstrap.log" { & $Bootstrap }
+            Invoke-Quiet "Bootstrapping vcpkg" "vcpkg-bootstrap.log" { & $Bootstrap } "Usually 1-3 minutes."
         }
     }
 
     $env:VCPKG_DEFAULT_TRIPLET = $Triplet
     $env:VCPKG_DEFAULT_HOST_TRIPLET = $Triplet
 
-    Write-Host "Installing Qt base with vcpkg. First run can take a long time."
+    Write-Host "Installing minimal Qt dependencies with vcpkg. First run can take a long time."
     Invoke-Quiet "Installing Qt dependencies" "vcpkg-qtbase.log" {
-        & $VcpkgExe install "qtbase" "--triplet=$Triplet" "--host-triplet=$Triplet"
-    }
+        & $VcpkgExe install "--x-manifest-root=$ManifestDir" "--triplet=$Triplet" "--host-triplet=$Triplet"
+    } "First run is commonly 30-120 minutes; cached reruns are much faster."
 
     return $VcpkgRoot
 }
@@ -208,6 +266,7 @@ if ($UseVcpkg) {
     $Toolchain = Join-Path $VcpkgRoot "scripts\buildsystems\vcpkg.cmake"
     $ConfigureArgs += @(
         "-DCMAKE_TOOLCHAIN_FILE=$Toolchain",
+        "-DVCPKG_MANIFEST_DIR=$ManifestDir",
         "-DVCPKG_TARGET_TRIPLET=$Triplet",
         "-DVCPKG_HOST_TRIPLET=$Triplet",
         "-DCMAKE_C_COMPILER=gcc",
@@ -217,8 +276,8 @@ if ($UseVcpkg) {
     $ConfigureArgs += "-DCMAKE_PREFIX_PATH=$QtPrefix"
 }
 
-Invoke-Quiet "Configuring Qt project" "qt-windows-configure.log" { cmake @ConfigureArgs }
-Invoke-Quiet "Building Qt executables" "qt-windows-build.log" { cmake --build $Build --config Release }
+Invoke-Quiet "Configuring Qt project" "qt-windows-configure.log" { cmake @ConfigureArgs } "Usually under 2 minutes after Qt is installed."
+Invoke-Quiet "Building Qt executables" "qt-windows-build.log" { cmake --build $Build --config Release } "Usually under 5 minutes after Qt is installed."
 
 $Client = Get-ChildItem $Build -Recurse -Filter "sharenet_qt_client.exe" | Select-Object -First 1
 $Server = Get-ChildItem $Build -Recurse -Filter "sharenet_qt_server.exe" | Select-Object -First 1
@@ -233,13 +292,14 @@ $Deploy = Find-WindeployQt $QtPrefix $VcpkgRoot
 if ($Deploy) {
     Invoke-Quiet "Deploying Qt client runtime" "qt-windows-deploy-client.log" {
         & $Deploy (Join-Path $Out "sharenet_qt_client.exe")
-    }
+    } "Usually under 1 minute."
     Invoke-Quiet "Deploying Qt server runtime" "qt-windows-deploy-server.log" {
         & $Deploy (Join-Path $Out "sharenet_qt_server.exe")
-    }
+    } "Usually under 1 minute."
 } else {
     Copy-VcpkgRuntimeDlls $VcpkgRoot
     Write-Host "windeployqt was not found. Runtime DLLs were copied when available; Qt plugins may still be required."
 }
 
 Write-Host "Qt Windows executables written to $Out"
+Write-Progress -Activity $ProgressActivity -Completed

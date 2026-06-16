@@ -67,6 +67,17 @@ If Qt is missing, the scripts ask before attempting installation. On Windows,
 the Qt script uses `vcpkg` and installs `qtbase:x64-mingw-dynamic`; it also
 uses an existing Qt installation when `QT_DIR` or `CMAKE_PREFIX_PATH` is set.
 
+Build scripts keep terminal output short. Verbose compiler, package manager,
+CMake, and vcpkg output is written to:
+
+```text
+build\logs\
+```
+
+Each log includes the step start time, estimate, completion time, and elapsed
+duration. The terminal shows numbered steps, stage percentages, and short
+failure tails.
+
 Qt outputs:
 
 ```text
