@@ -48,9 +48,13 @@ function Write-ProgressText {
     param([int]$Percent, [string]$Status)
     if ($Percent -lt 0) { $Percent = 0 }
     if ($Percent -gt 100) { $Percent = 100 }
-    $Width = 28
+    $Width = 24
     $Filled = [math]::Floor($Width * $Percent / 100)
     $Bar = ("#" * $Filled).PadRight($Width, "-")
+    $MaxStatus = 54
+    if ($Status.Length -gt $MaxStatus) {
+        $Status = $Status.Substring(0, $MaxStatus - 3) + "..."
+    }
     $Text = ("`r[{0}] {1,3}%  {2}" -f $Bar, $Percent, $Status)
     $Pad = ""
     if ($script:LastProgressLength -gt $Text.Length) {

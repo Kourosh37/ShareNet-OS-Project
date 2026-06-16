@@ -48,9 +48,13 @@ function Write-ProgressText {
     param([int]$Percent, [string]$Status)
     if ($Percent -lt 0) { $Percent = 0 }
     if ($Percent -gt 100) { $Percent = 100 }
-    $Width = 28
+    $Width = 24
     $Filled = [math]::Floor($Width * $Percent / 100)
     $Bar = ("#" * $Filled).PadRight($Width, "-")
+    $MaxStatus = 54
+    if ($Status.Length -gt $MaxStatus) {
+        $Status = $Status.Substring(0, $MaxStatus - 3) + "..."
+    }
     $Text = ("`r[{0}] {1,3}%  {2}" -f $Bar, $Percent, $Status)
     $Pad = ""
     if ($script:LastProgressLength -gt $Text.Length) {
@@ -68,14 +72,14 @@ function Update-RunningProgress {
     if ($Line -match "Installing\s+(\d+)/(\d+)\s+(.+?)\.\.\.") {
         $Index = [int]$Matches[1]
         $Total = [int]$Matches[2]
-        $Name = $Matches[3]
+        $Name = Get-ShortPackageName $Matches[3]
         $Percent = [math]::Round($Base + (($Index - 1) / [math]::Max($Total, 1)) * $Span)
         Write-ProgressText $Percent "Installing $Index/$Total $Name"
         return
     }
 
     if ($Line -match "Building\s+(.+?)\.\.\.") {
-        Write-ProgressText ([math]::Round($Base + ($Span * 0.5))) "Building $($Matches[1])"
+        Write-ProgressText ([math]::Round($Base + ($Span * 0.5))) "Building $(Get-ShortPackageName $Matches[1])"
         return
     }
 
@@ -90,6 +94,30 @@ function Update-RunningProgress {
     }
 
     Write-ProgressText ([math]::Round($Base + ($Span * 0.1))) $FallbackTitle
+}
+
+function Get-ShortPackageName {
+    param([string]$Name)
+    $Short = $Name
+    if ($Short -match "^([^:\[]+)") {
+        $Short = $Matches[1]
+    }
+    return $Short.Trim()
+}
+
+function Show-LogFailure {
+    param([string]$LogPath)
+    Write-Host ""
+    Write-Host "Failed. Important log lines:"
+    $Important = Get-Content $LogPath -ErrorAction SilentlyContinue |
+        Select-String -Pattern "CMake Error|error:|failed with|FAILED after|No such file|already exists" |
+        Select-Object -Last 20
+    if ($Important) {
+        $Important | ForEach-Object { Write-Host $_.Line }
+    } else {
+        Get-Content $LogPath -Tail 40 -ErrorAction SilentlyContinue | ForEach-Object { Write-Host $_ }
+    }
+    Write-Host "Full log: $LogPath"
 }
 
 function Ask-YesNo {
@@ -132,9 +160,7 @@ function Invoke-Quiet {
             ""
             "[$FinishedAt] FAILED after $(Format-Duration $Timer.Elapsed)"
         )
-        Write-Host ""
-        Write-Host "Failed. Last log lines from ${LogPath}:"
-        Get-Content $LogPath -Tail 80
+        Show-LogFailure $LogPath
         throw "$Title failed. Full log: $LogPath"
     }
 
@@ -232,12 +258,27 @@ function Install-Qt {
     $env:VCPKG_DEFAULT_TRIPLET = $Triplet
     $env:VCPKG_DEFAULT_HOST_TRIPLET = $Triplet
 
+    Repair-VcpkgToolCache $VcpkgRoot
+
     Write-Host "Installing minimal Qt dependencies with vcpkg. First run can take a long time."
     Invoke-Quiet "Installing Qt dependencies" "vcpkg-qtbase.log" {
         & $VcpkgExe install "--x-manifest-root=$ManifestDir" "--triplet=$Triplet" "--host-triplet=$Triplet"
     } "First run is commonly 30-120 minutes; cached reruns are much faster."
 
     return $VcpkgRoot
+}
+
+function Repair-VcpkgToolCache {
+    param([string]$VcpkgRoot)
+    $PerlRoot = Join-Path $VcpkgRoot "downloads\tools\perl"
+    if (-not (Test-Path $PerlRoot)) { return }
+
+    Get-ChildItem $PerlRoot -Directory -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -match "^\d+\.\d+\.\d+\.\d+$" } |
+        ForEach-Object {
+            Write-Host "Refreshing vcpkg Perl tool cache: $($_.Name)"
+            Remove-Item -LiteralPath $_.FullName -Recurse -Force -ErrorAction SilentlyContinue
+        }
 }
 
 function Find-WindeployQt {
