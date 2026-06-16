@@ -1,30 +1,46 @@
 # ShareNet Runbook
 
-This runbook is the operational guide for the current ShareNet project. The maintained UI is FLTK. The CLI tools are kept for protocol testing and simple demos.
+Operational guide for the current ShareNet project. The maintained GUI is FLTK. The CLI tools remain available for protocol checks and simple terminal demos.
 
-## 1. Variants
+## 1. Project Layout
 
-- CLI server/client: terminal tools written in C.
-- FLTK server/client: lightweight cross-platform GUI.
+- `src/server/`, `src/client/`: CLI server/client implementation.
+- `src/common/`: shared protocol, socket, file, and chunk helpers.
+- `src/fltk/`: lightweight FLTK GUI server/client.
+- `scripts/`: platform build and packaging scripts.
+- `server_files/`: files hosted by the server at runtime.
+- `client_files/`: optional local files to upload from the client.
+- `downloads/`: downloaded files.
+
+Only `.gitkeep` files are tracked inside runtime folders. Real uploaded/downloaded files are ignored by git.
 
 ## 2. Clean Workspace
 
-```sh
-make clean
+Use this when you want to remove generated output:
+
+```powershell
+Remove-Item -Recurse -Force build,dist -ErrorAction SilentlyContinue
+Remove-Item -Force sharenet_server,sharenet_client,*.exe,*.o,*.out -ErrorAction SilentlyContinue
 ```
 
-Generated output is ignored by git:
+Linux, macOS, or WSL:
+
+```sh
+make clean
+rm -rf build dist
+```
+
+Generated output is intentionally ignored:
 
 - `build/`
 - `dist/`
 - root executables such as `sharenet_server`
-- runtime files in `server_files/` and `downloads/`
-
-Keep the `.gitkeep` files. Runtime files can be deleted when you want a clean local state.
+- runtime files under `client_files/`, `server_files/`, and `downloads/`
+- local FLTK/vcpkg install folders
 
 ## 3. Build CLI
 
-Linux or WSL:
+Linux, macOS, or WSL:
 
 ```sh
 make
@@ -63,36 +79,28 @@ macOS:
 ./scripts/build-fltk-macos.sh
 ```
 
-If FLTK is missing, the scripts ask before attempting installation. On Windows,
-the FLTK script uses `vcpkg` and installs `fltk:x64-mingw-dynamic`.
+If FLTK or build dependencies are missing, the scripts ask before installing anything. Windows uses vcpkg with the lightweight `fltk:x64-mingw-dynamic` dependency.
 
-Build scripts keep terminal output short. Verbose compiler, package manager,
-CMake, and vcpkg output is written to:
+Build output:
+
+```text
+dist\fltk-windows\sharenet_fltk_server.exe
+dist\fltk-windows\sharenet_fltk_client.exe
+build/fltk-linux/sharenet_fltk_server
+build/fltk-linux/sharenet_fltk_client
+build/fltk-macos/sharenet_fltk_server
+build/fltk-macos/sharenet_fltk_client
+```
+
+Verbose compiler/package logs are written to:
 
 ```text
 build\logs\
 ```
 
-Each log includes the step start time, estimate, completion time, and elapsed
-duration. The terminal shows numbered steps, stage percentages, and short
-failure tails.
-
-FLTK outputs:
-
-```text
-sharenet_fltk_server
-sharenet_fltk_client
-```
-
-On Windows they are placed under:
-
-```text
-dist\fltk-windows\
-```
-
 ## 5. Run FLTK
 
-Start server first:
+Start the server first:
 
 ```text
 sharenet_fltk_server
@@ -100,10 +108,10 @@ sharenet_fltk_server
 
 Recommended bind settings:
 
-- local testing: `127.0.0.1:5000`
+- local machine only: `127.0.0.1:5000`
 - LAN testing: `0.0.0.0:5000`
 
-Then start:
+Then start the client:
 
 ```text
 sharenet_fltk_client
@@ -112,19 +120,20 @@ sharenet_fltk_client
 Client workflow:
 
 1. Set server IP and port.
-2. Pick an upload file with the native file dialog.
-3. Upload and watch the progress bar.
-4. Click List Files.
-5. Select a server file row.
+2. Pick any local file with Browse.
+3. Upload and wait for the progress bar to finish.
+4. Click List.
+5. Select a server file.
 6. Choose a download folder.
 7. Download and verify progress reaches 100%.
 
 Server workflow:
 
-1. Start listening.
-2. Refresh the server file table.
-3. Delete selected files when needed.
-4. Copy/download selected server files to a local path when needed.
+1. Set bind IP and port.
+2. Start listening.
+3. Refresh the file list when needed.
+4. Delete selected hosted files when needed.
+5. Copy/download a selected hosted file to a local path when needed.
 
 ## 6. Run CLI Demo
 
@@ -143,14 +152,14 @@ Terminal 2:
 Demo flow:
 
 1. Put any file under `client_files/`.
-2. Upload that file.
+2. Upload that file from the CLI client.
 3. List server files.
 4. Download the same file.
 5. Verify the transfer.
 
 ## 7. Verify Transfer Integrity
 
-Linux or WSL:
+Linux, macOS, or WSL:
 
 ```sh
 diff client_files/YOUR_FILE downloads/YOUR_FILE
@@ -180,12 +189,12 @@ dist\ShareNet-Windows-Portable.zip
 dist\ShareNet-Windows-Portable.exe
 ```
 
-The package includes CLI and FLTK outputs when FLTK is available. It also includes runtime files needed on a target Windows computer.
+The portable package includes CLI executables, FLTK executables, runtime DLLs, launcher script, and empty runtime folders. It should run on a Windows machine without requiring FLTK or a compiler to be installed.
 
 ## 9. Troubleshooting
 
-- `Address already in use`: stop the existing server or use another port.
-- Client cannot connect: verify IP, port, firewall rules, and that the server is listening.
-- FLTK build fails on Windows: rerun `scripts\build-fltk-windows.ps1`, answer `y`
-  if asked to install missing dependencies, and inspect `build\logs\`.
-- Portable app does not start: keep all generated DLLs next to their executables.
+- `Address already in use`: stop the existing server or choose another port.
+- Client cannot connect: verify IP, port, firewall rules, and server state.
+- Windows FLTK build fails: rerun `scripts\build-fltk-windows.ps1` and inspect `build\logs\`.
+- Portable app does not start: keep generated DLLs next to their executables.
+- Files do not appear: confirm the server is using the expected `server_files/` folder and click Refresh/List.
