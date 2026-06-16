@@ -14,9 +14,9 @@ New-Item -ItemType Directory -Force -Path $Build, $Out, $LogDir | Out-Null
 
 $Triplet = "x64-mingw-dynamic"
 $ManifestDir = Join-Path $Root "src\qt"
-$ProgressActivity = "ShareNet Qt Windows Build"
 $TotalSteps = 6
 $script:StepIndex = 0
+$script:LastProgressLength = 0
 
 function Format-Duration {
     param([TimeSpan]$Duration)
@@ -28,10 +28,10 @@ function Start-Step {
     param([string]$Title, [string]$Estimate)
     $script:StepIndex += 1
     $Percent = [math]::Round((($script:StepIndex - 1) / $TotalSteps) * 100)
-    Write-Progress -Activity $ProgressActivity -Status "$Title (starting)" -PercentComplete $Percent
-    Write-Host ("[{0}/{1}] {2}" -f $script:StepIndex, $TotalSteps, $Title)
+    Write-ProgressText $Percent ("[{0}/{1}] {2}" -f $script:StepIndex, $TotalSteps, $Title)
+    Write-Host ""
     if ($Estimate) {
-        Write-Host "    Estimate: $Estimate"
+        Write-Host "Estimate: $Estimate"
     }
     return [System.Diagnostics.Stopwatch]::StartNew()
 }
@@ -40,8 +40,56 @@ function Complete-Step {
     param([string]$Title, [System.Diagnostics.Stopwatch]$Timer)
     $Timer.Stop()
     $Percent = [math]::Round(($script:StepIndex / $TotalSteps) * 100)
-    Write-Progress -Activity $ProgressActivity -Status "$Title completed in $(Format-Duration $Timer.Elapsed)" -PercentComplete $Percent
-    Write-Host "    Done in $(Format-Duration $Timer.Elapsed)"
+    Write-ProgressText $Percent ("Done: {0} in {1}" -f $Title, (Format-Duration $Timer.Elapsed))
+    Write-Host ""
+}
+
+function Write-ProgressText {
+    param([int]$Percent, [string]$Status)
+    if ($Percent -lt 0) { $Percent = 0 }
+    if ($Percent -gt 100) { $Percent = 100 }
+    $Width = 28
+    $Filled = [math]::Floor($Width * $Percent / 100)
+    $Bar = ("#" * $Filled).PadRight($Width, "-")
+    $Text = ("`r[{0}] {1,3}%  {2}" -f $Bar, $Percent, $Status)
+    $Pad = ""
+    if ($script:LastProgressLength -gt $Text.Length) {
+        $Pad = " " * ($script:LastProgressLength - $Text.Length)
+    }
+    Write-Host -NoNewline ($Text + $Pad)
+    $script:LastProgressLength = $Text.Length
+}
+
+function Update-RunningProgress {
+    param([string]$Line, [string]$FallbackTitle)
+    $Base = ($script:StepIndex - 1) / $TotalSteps * 100
+    $Span = 100 / $TotalSteps
+
+    if ($Line -match "Installing\s+(\d+)/(\d+)\s+(.+?)\.\.\.") {
+        $Index = [int]$Matches[1]
+        $Total = [int]$Matches[2]
+        $Name = $Matches[3]
+        $Percent = [math]::Round($Base + (($Index - 1) / [math]::Max($Total, 1)) * $Span)
+        Write-ProgressText $Percent "Installing $Index/$Total $Name"
+        return
+    }
+
+    if ($Line -match "Building\s+(.+?)\.\.\.") {
+        Write-ProgressText ([math]::Round($Base + ($Span * 0.5))) "Building $($Matches[1])"
+        return
+    }
+
+    if ($Line -match "Configuring\s+(.+)") {
+        Write-ProgressText ([math]::Round($Base + ($Span * 0.35))) "Configuring $($Matches[1])"
+        return
+    }
+
+    if ($Line -match "Downloading\s+(.+)") {
+        Write-ProgressText ([math]::Round($Base + ($Span * 0.2))) "Downloading dependencies"
+        return
+    }
+
+    Write-ProgressText ([math]::Round($Base + ($Span * 0.1))) $FallbackTitle
 }
 
 function Ask-YesNo {
@@ -72,7 +120,11 @@ function Invoke-Quiet {
         ""
     ) | Set-Content -LiteralPath $LogPath -Encoding UTF8
 
-    & $Command *>> $LogPath
+    & $Command 2>&1 | ForEach-Object {
+        $Line = $_.ToString()
+        Add-Content -LiteralPath $LogPath -Encoding UTF8 -Value $Line
+        Update-RunningProgress $Line $Title
+    }
     if ($LASTEXITCODE -ne 0) {
         $Timer.Stop()
         $FinishedAt = Get-Date
@@ -80,7 +132,7 @@ function Invoke-Quiet {
             ""
             "[$FinishedAt] FAILED after $(Format-Duration $Timer.Elapsed)"
         )
-        Write-Progress -Activity $ProgressActivity -Status "$Title failed after $(Format-Duration $Timer.Elapsed)" -PercentComplete ([math]::Round((($script:StepIndex - 1) / $TotalSteps) * 100))
+        Write-Host ""
         Write-Host "Failed. Last log lines from ${LogPath}:"
         Get-Content $LogPath -Tail 80
         throw "$Title failed. Full log: $LogPath"
@@ -302,4 +354,3 @@ if ($Deploy) {
 }
 
 Write-Host "Qt Windows executables written to $Out"
-Write-Progress -Activity $ProgressActivity -Completed

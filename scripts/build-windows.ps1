@@ -10,9 +10,9 @@ $Root = Resolve-Path (Join-Path $PSScriptRoot "..")
 $Out = Join-Path $Root "dist\windows"
 $LogDir = Join-Path $Root "build\logs"
 New-Item -ItemType Directory -Force -Path $Out, $LogDir | Out-Null
-$ProgressActivity = "ShareNet Windows CLI Build"
 $TotalSteps = 2
 $script:StepIndex = 0
+$script:LastProgressLength = 0
 
 function Format-Duration {
     param([TimeSpan]$Duration)
@@ -24,9 +24,9 @@ function Start-Step {
     param([string]$Title, [string]$Estimate)
     $script:StepIndex += 1
     $Percent = [math]::Round((($script:StepIndex - 1) / $TotalSteps) * 100)
-    Write-Progress -Activity $ProgressActivity -Status "$Title (starting)" -PercentComplete $Percent
-    Write-Host ("[{0}/{1}] {2}" -f $script:StepIndex, $TotalSteps, $Title)
-    if ($Estimate) { Write-Host "    Estimate: $Estimate" }
+    Write-ProgressText $Percent ("[{0}/{1}] {2}" -f $script:StepIndex, $TotalSteps, $Title)
+    Write-Host ""
+    if ($Estimate) { Write-Host "Estimate: $Estimate" }
     return [System.Diagnostics.Stopwatch]::StartNew()
 }
 
@@ -34,8 +34,24 @@ function Complete-Step {
     param([string]$Title, [System.Diagnostics.Stopwatch]$Timer)
     $Timer.Stop()
     $Percent = [math]::Round(($script:StepIndex / $TotalSteps) * 100)
-    Write-Progress -Activity $ProgressActivity -Status "$Title completed in $(Format-Duration $Timer.Elapsed)" -PercentComplete $Percent
-    Write-Host "    Done in $(Format-Duration $Timer.Elapsed)"
+    Write-ProgressText $Percent ("Done: {0} in {1}" -f $Title, (Format-Duration $Timer.Elapsed))
+    Write-Host ""
+}
+
+function Write-ProgressText {
+    param([int]$Percent, [string]$Status)
+    if ($Percent -lt 0) { $Percent = 0 }
+    if ($Percent -gt 100) { $Percent = 100 }
+    $Width = 28
+    $Filled = [math]::Floor($Width * $Percent / 100)
+    $Bar = ("#" * $Filled).PadRight($Width, "-")
+    $Text = ("`r[{0}] {1,3}%  {2}" -f $Bar, $Percent, $Status)
+    $Pad = ""
+    if ($script:LastProgressLength -gt $Text.Length) {
+        $Pad = " " * ($script:LastProgressLength - $Text.Length)
+    }
+    Write-Host -NoNewline ($Text + $Pad)
+    $script:LastProgressLength = $Text.Length
 }
 
 function Ask-YesNo {
@@ -121,4 +137,3 @@ Invoke-Compile "windows-cli-server" @CFlags -o "$Out\sharenet_server.exe" @Commo
 Invoke-Compile "windows-cli-client" @CFlags -o "$Out\sharenet_client.exe" @Common "$Root\src\client\client_main.c" "$Root\src\client\client.c" -lws2_32
 
 Write-Host "Windows CLI executables written to $Out"
-Write-Progress -Activity $ProgressActivity -Completed
