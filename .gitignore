@@ -10,7 +10,9 @@ dist/
 vcpkg_installed/
 src/fltk/vcpkg_installed/
 server_files/*
+client_files/*
 downloads/*
 !server_files/.gitkeep
+!client_files/.gitkeep
 !downloads/.gitkeep
 .DS_Store

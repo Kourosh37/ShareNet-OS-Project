@@ -20,7 +20,7 @@ Generated output is ignored by git:
 - root executables such as `sharenet_server`
 - runtime files in `server_files/` and `downloads/`
 
-Keep `client_files/sample.txt`, `test_files/sample.txt`, and `.gitkeep` files.
+Keep the `.gitkeep` files. Runtime files can be deleted when you want a clean local state.
 
 ## 3. Build CLI
 
@@ -142,26 +142,27 @@ Terminal 2:
 
 Demo flow:
 
-1. Upload `client_files/sample.txt`.
-2. List server files.
-3. Download `sample.txt`.
-4. Verify the transfer.
+1. Put any file under `client_files/`.
+2. Upload that file.
+3. List server files.
+4. Download the same file.
+5. Verify the transfer.
 
 ## 7. Verify Transfer Integrity
 
 Linux or WSL:
 
 ```sh
-diff client_files/sample.txt downloads/sample.txt
-sha256sum client_files/sample.txt downloads/sample.txt
+diff client_files/YOUR_FILE downloads/YOUR_FILE
+sha256sum client_files/YOUR_FILE downloads/YOUR_FILE
 ```
 
 Windows PowerShell:
 
 ```powershell
-Compare-Object (Get-Content client_files\sample.txt) (Get-Content downloads\sample.txt)
-Get-FileHash client_files\sample.txt
-Get-FileHash downloads\sample.txt
+Compare-Object (Get-Content client_files\YOUR_FILE) (Get-Content downloads\YOUR_FILE)
+Get-FileHash client_files\YOUR_FILE
+Get-FileHash downloads\YOUR_FILE
 ```
 
 No diff output and matching hashes mean the transfer is correct.

@@ -182,7 +182,6 @@ Copy-DirectoryContents $FltkOut (Join-Path $Portable "fltk-windows")
 New-Item -ItemType Directory -Force -Path (Join-Path $Portable "server_files") | Out-Null
 New-Item -ItemType Directory -Force -Path (Join-Path $Portable "client_files") | Out-Null
 New-Item -ItemType Directory -Force -Path (Join-Path $Portable "downloads") | Out-Null
-Copy-Item -Force (Join-Path $Root "client_files\sample.txt") (Join-Path $Portable "client_files\sample.txt") -ErrorAction SilentlyContinue
 
 $Launcher = @'
 @echo off

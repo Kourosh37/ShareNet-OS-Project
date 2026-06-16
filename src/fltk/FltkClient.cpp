@@ -49,7 +49,7 @@ public:
         port->value("5000");
         list_btn = new Fl_Button(430, 24, 110, 30, "List");
         upload_path = new Fl_Input(120, 72, 650, 30, "Upload");
-        upload_path->value(fs::absolute("client_files/sample.txt").string().c_str());
+        upload_path->value(fs::absolute("client_files").string().c_str());
         browse_btn = new Fl_Button(790, 72, 90, 30, "Browse");
         upload_btn = new Fl_Button(900, 72, 120, 30, "Upload");
         download_dir = new Fl_Input(120, 120, 650, 30, "Downloads");

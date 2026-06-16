@@ -1,3 +1,0 @@
-ShareNet Phase 1 sample file
-This file is used to test upload and download.
-If diff prints no output, the transferred file is identical.

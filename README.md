@@ -104,16 +104,17 @@ Terminal 2:
 
 Demo:
 
-1. Upload `client_files/sample.txt`.
-2. List files.
-3. Download `sample.txt`.
-4. Verify integrity.
+1. Put any file under `client_files/`.
+2. Upload that file.
+3. List files.
+4. Download the same file.
+5. Verify integrity.
 
 ## Verify Integrity
 
 ```sh
-diff client_files/sample.txt downloads/sample.txt
-sha256sum client_files/sample.txt downloads/sample.txt
+diff client_files/YOUR_FILE downloads/YOUR_FILE
+sha256sum client_files/YOUR_FILE downloads/YOUR_FILE
 ```
 
 No `diff` output and matching hashes mean the transfer is correct.
