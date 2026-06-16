@@ -36,6 +36,9 @@ macOS:
 
 Outputs are written under `dist/`.
 
+Runtime folders such as `server_files/`, `client_files/`, and `downloads/` are
+created automatically when the apps run and are not tracked by git.
+
 ## Run
 
 Start the server first, then the client.

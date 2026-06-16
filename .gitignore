@@ -5,9 +5,6 @@ dist/
 *.out
 .DS_Store
 
-server_files/*
-client_files/*
-downloads/*
-!server_files/.gitkeep
-!client_files/.gitkeep
-!downloads/.gitkeep
+server_files/
+client_files/
+downloads/

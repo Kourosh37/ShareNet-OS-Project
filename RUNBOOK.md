@@ -52,4 +52,4 @@ Remove-Item -Recurse -Force dist,build -ErrorAction SilentlyContinue
 rm -rf dist build
 ```
 
-Runtime files under `client_files/`, `server_files/`, and `downloads/` are ignored by git.
+Runtime folders `client_files/`, `server_files/`, and `downloads/` are ignored by git and are created automatically when needed.
