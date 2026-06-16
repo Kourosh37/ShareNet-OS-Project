@@ -1,132 +1,41 @@
 # ShareNet-Phase1-C
 
-ShareNet یک پروژه ساده اشتراک فایل در شبکه داخلی است که با زبان C و سوکت‌های POSIX روی لینوکس پیاده‌سازی شده است. در فاز اول، سرور به صورت single-process و single-threaded کار می‌کند و در هر لحظه فقط یک کلاینت را پردازش می‌کند.
+ShareNet is a C-based TCP file sharing project with a binary protocol, chunked transfers, a single-client server model, CLI tools, and a Qt GUI.
 
-## ویژگی‌ها
+## Features
 
-- ارتباط TCP با معماری Client-Server
-- پروتکل binary با `MessageHeader` و `ChunkHeader`
-- ارسال و دریافت امن داده با `send_all` و `recv_all`
-- نمایش لیست فایل‌های سرور
-- آپلود فایل از کلاینت به `server_files`
-- دانلود chunk شده فایل در `downloads`
-- جلوگیری ساده از path traversal در نام فایل
-- رابط گرافیکی raylib برای سرور و کلاینت
-- لایه socket سازگار با Linux، Windows و macOS
+- TCP client/server file sharing
+- Binary protocol with `MessageHeader` and `ChunkHeader`
+- Chunked upload and download
+- Safe filename validation against path traversal
+- CLI server and client
+- Qt server and client
+- Windows, Linux, and macOS build scripts
+- Windows portable package script
 
-## پیش‌نیازها
+## Requirements
 
-- Linux
-- gcc
-- make
-- برای نسخه گرافیکی: raylib
+CLI:
 
-روی Ubuntu/Debian در صورت آماده بودن بسته‌ها:
+- C compiler
+- make on Linux/macOS or WSL
 
-```sh
-sudo apt install build-essential libraylib-dev
-```
+Qt GUI:
 
-روی macOS با Homebrew:
+- CMake
+- Qt 6 preferred, Qt 5 fallback supported by CMake
+- C++17 compiler
+- Windows Qt auto-install uses `vcpkg` with `qtbase:x64-mingw-dynamic`
 
-```sh
-brew install raylib pkg-config
-```
+The build scripts ask before installing missing dependencies.
 
-روی Windows باید MinGW-w64 یا gcc سازگار و raylib نصب باشد. برای ساخت GUI ویندوزی، متغیر `RAYLIB_PATH` را به پوشه نصب raylib تنظیم کنید؛ این پوشه باید `include` و `lib` داشته باشد.
+## Build CLI
 
-## ساختار پروژه
-
-```text
-ShareNet-Phase1-C/
-├── Makefile
-├── README.md
-├── DOCUMENTATION.md
-├── include/
-├── src/
-├── server_files/
-├── client_files/
-├── downloads/
-└── test_files/
-```
-
-## کامپایل
+Linux/WSL:
 
 ```sh
 make
 ```
-
-خروجی کامپایل دو فایل اجرایی است:
-
-```sh
-./sharenet_server
-./sharenet_client
-```
-
-برای ساخت نسخه گرافیکی با raylib:
-
-```sh
-make gui
-```
-
-خروجی گرافیکی:
-
-```sh
-./sharenet_server_gui
-./sharenet_client_gui
-```
-
-## اجرای سرور
-
-```sh
-make run-server
-```
-
-یا:
-
-```sh
-./sharenet_server
-```
-
-## اجرای کلاینت
-
-در ترمینال جداگانه:
-
-```sh
-make run-client
-```
-
-یا:
-
-```sh
-./sharenet_client
-```
-
-## اجرای نسخه گرافیکی
-
-در یک ترمینال:
-
-```sh
-./sharenet_server_gui
-```
-
-در ترمینال یا پنجره جدا:
-
-```sh
-./sharenet_client_gui
-```
-
-در GUI سرور ابتدا روی `Start Server` کلیک کنید. در GUI کلاینت می‌توانید مسیر آپلود، نام فایل دانلود و عملیات لیست/آپلود/دانلود را از طریق دکمه‌ها انجام دهید.
-
-## ساخت خروجی برای سیستم‌عامل‌ها
-
-Linux:
-
-```sh
-./scripts/build-linux.sh
-```
-
-خروجی در `dist/linux` قرار می‌گیرد.
 
 Windows:
 
@@ -134,35 +43,90 @@ Windows:
 powershell -ExecutionPolicy Bypass -File scripts\build-windows.ps1
 ```
 
-یا:
+## Build Qt GUI
 
-```bat
-scripts\build-windows.bat
+Windows:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\build-qt-windows.ps1
 ```
 
-خروجی در `dist/windows` قرار می‌گیرد. اگر `RAYLIB_PATH` تنظیم نشده باشد، خروجی‌های ترمینالی ویندوز ساخته می‌شوند و خروجی‌های GUI ویندوزی skip می‌شوند.
+Linux:
+
+```sh
+./scripts/build-qt-linux.sh
+```
 
 macOS:
 
 ```sh
-./scripts/build-macos.sh
+./scripts/build-qt-macos.sh
 ```
 
-خروجی در `dist/macos` قرار می‌گیرد.
+## Qt Server
 
-## سناریوی دمو
+The Qt server supports:
 
-1. سرور را اجرا کنید.
-2. کلاینت را اجرا کنید.
-3. گزینه آپلود را انتخاب کنید و مسیر `client_files/sample.txt` را وارد کنید.
-4. گزینه نمایش لیست فایل‌ها را انتخاب کنید.
-5. گزینه دانلود را انتخاب کنید و نام `sample.txt` را وارد کنید.
+- configurable bind IP and port
+- file table for `server_files`
+- delete selected file
+- copy/download selected server file to a local path
+- protocol-compatible TCP service
 
-## بررسی صحت فایل
+## Qt Client
+
+The Qt client supports:
+
+- configurable server IP and port
+- native file picker for uploads
+- server file list
+- selected-row download
+- selectable download folder
+- progress bar for upload/download
+- animated success tick
+- async networking through `QTcpSocket`
+
+## CLI Demo
+
+Terminal 1:
+
+```sh
+./sharenet_server
+```
+
+Terminal 2:
+
+```sh
+./sharenet_client
+```
+
+Demo:
+
+1. Upload `client_files/sample.txt`.
+2. List files.
+3. Download `sample.txt`.
+4. Verify integrity.
+
+## Verify Integrity
 
 ```sh
 diff client_files/sample.txt downloads/sample.txt
 sha256sum client_files/sample.txt downloads/sample.txt
 ```
 
-اگر `diff` خروجی نداشته باشد و hashها یکسان باشند، فایل دانلود شده دقیقا با فایل اصلی برابر است.
+No `diff` output and matching hashes mean the transfer is correct.
+
+## Windows Portable Package
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\package-windows-portable.ps1
+```
+
+Outputs:
+
+```text
+dist\ShareNet-Windows-Portable.zip
+dist\ShareNet-Windows-Portable.exe
+```
+
+See [RUNBOOK.md](RUNBOOK.md) for the full operating guide.

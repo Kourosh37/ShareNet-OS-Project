@@ -23,6 +23,8 @@ typedef struct {
 
 uint64_t htonll(uint64_t value);
 uint64_t ntohll(uint64_t value);
+uint32_t hton32(uint32_t value);
+uint32_t ntoh32(uint32_t value);
 
 int send_message_header(int socket_fd, uint32_t type, uint32_t payload_size);
 int recv_message_header(int socket_fd, MessageHeader *header);

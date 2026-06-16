@@ -4,6 +4,37 @@ $Root = Resolve-Path (Join-Path $PSScriptRoot "..")
 $Out = Join-Path $Root "dist\windows"
 New-Item -ItemType Directory -Force -Path $Out | Out-Null
 
+function Ask-YesNo {
+    param([string]$Question)
+    $Answer = Read-Host "$Question [y/N]"
+    return $Answer -match "^(y|yes)$"
+}
+
+function Test-CommandExists {
+    param([string]$Name)
+    return [bool](Get-Command $Name -ErrorAction SilentlyContinue)
+}
+
+function Install-WindowsCompiler {
+    if (Test-CommandExists "scoop") {
+        scoop install gcc
+        return
+    }
+    if (Test-CommandExists "winget") {
+        winget install --id BrechtSanders.WinLibs.POSIX.UCRT -e --accept-package-agreements --accept-source-agreements
+        Write-Host "If gcc is still not on PATH, open a new PowerShell window and rerun this script."
+        return
+    }
+    throw "No supported package manager found. Install gcc/MinGW-w64 manually or install Scoop/winget."
+}
+
+function Invoke-Compile {
+    & $CC @args
+    if ($LASTEXITCODE -ne 0) {
+        throw "Compilation failed: $CC $args"
+    }
+}
+
 $CC = if ($env:CC) { $env:CC } else { "gcc" }
 $CFlags = @("-Wall", "-Wextra", "-std=c11", "-I$Root\include")
 $Common = @(
@@ -13,24 +44,16 @@ $Common = @(
     "$Root\src\common\chunk.c"
 )
 
-function Invoke-Compile {
-    & $CC @args
-    if ($LASTEXITCODE -ne 0) {
-        throw "Compilation failed: $CC $args"
+if (-not (Test-CommandExists $CC)) {
+    Write-Host "Compiler '$CC' was not found."
+    if (Ask-YesNo "Install a Windows C compiler now?") {
+        Install-WindowsCompiler
+    } else {
+        throw "Cannot build without a C compiler."
     }
 }
 
 Invoke-Compile @CFlags -o "$Out\sharenet_server.exe" @Common "$Root\src\server\server_main.c" "$Root\src\server\server.c" -lws2_32
 Invoke-Compile @CFlags -o "$Out\sharenet_client.exe" @Common "$Root\src\client\client_main.c" "$Root\src\client\client.c" -lws2_32
 
-$RaylibPath = $env:RAYLIB_PATH
-if (-not $RaylibPath) {
-    Write-Host "RAYLIB_PATH is not set. Skipping Windows GUI builds."
-    Write-Host "Set RAYLIB_PATH to a raylib install folder containing include\ and lib\."
-    exit 0
-}
-
-Invoke-Compile @CFlags "-I$RaylibPath\include" -o "$Out\sharenet_server_gui.exe" @Common "$Root\src\server\server.c" "$Root\src\gui\server_gui.c" "-L$RaylibPath\lib" -lraylib -lopengl32 -lgdi32 -lwinmm -lws2_32
-Invoke-Compile @CFlags "-I$RaylibPath\include" -o "$Out\sharenet_client_gui.exe" @Common "$Root\src\gui\client_gui.c" "-L$RaylibPath\lib" -lraylib -lopengl32 -lgdi32 -lwinmm -lws2_32
-
-Write-Host "Windows executables written to $Out"
+Write-Host "Windows CLI executables written to $Out"

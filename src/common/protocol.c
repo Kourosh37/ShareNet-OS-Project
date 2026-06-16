@@ -19,6 +19,14 @@ uint64_t ntohll(uint64_t value) {
     return ((uint64_t)low << 32) | high;
 }
 
+uint32_t hton32(uint32_t value) {
+    return htonl(value);
+}
+
+uint32_t ntoh32(uint32_t value) {
+    return ntohl(value);
+}
+
 int send_message_header(int socket_fd, uint32_t type, uint32_t payload_size) {
     MessageHeader header;
     header.type = htonl(type);

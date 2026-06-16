@@ -1,11 +1,11 @@
 sharenet_server
 sharenet_client
-sharenet_server_gui
-sharenet_client_gui
 *.exe
 *.o
 *.out
 *.log
+.sharenet_qt_client.ini
+build/
 dist/
 server_files/*
 downloads/*

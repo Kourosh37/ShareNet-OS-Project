@@ -38,6 +38,10 @@ static int socket_error_would_block(void) {
 }
 
 int create_server_socket(int port) {
+    return create_server_socket_at(NULL, port);
+}
+
+int create_server_socket_at(const char *ip, int port) {
     if (init_socket_system() != 0) {
         return -1;
     }
@@ -58,8 +62,14 @@ int create_server_socket(int port) {
     struct sockaddr_in address;
     memset(&address, 0, sizeof(address));
     address.sin_family = AF_INET;
-    address.sin_addr.s_addr = INADDR_ANY;
     address.sin_port = htons((uint16_t)port);
+    if (ip == NULL || ip[0] == '\0' || strcmp(ip, "0.0.0.0") == 0) {
+        address.sin_addr.s_addr = INADDR_ANY;
+    } else if (inet_pton(AF_INET, ip, &address.sin_addr) <= 0) {
+        fprintf(stderr, "Invalid bind IP: %s\n", ip);
+        close_socket(server_fd);
+        return -1;
+    }
 
     if (bind(server_fd, (struct sockaddr *)&address, sizeof(address)) < 0) {
         perror("bind");
@@ -89,6 +99,10 @@ int accept_client(int server_fd) {
 }
 
 int connect_to_server(const char *ip, int port) {
+    return connect_to_server_timeout(ip, port, 5000);
+}
+
+int connect_to_server_timeout(const char *ip, int port, int timeout_ms) {
     if (init_socket_system() != 0) {
         return -1;
     }
@@ -110,8 +124,53 @@ int connect_to_server(const char *ip, int port) {
         return -1;
     }
 
+    if (set_socket_nonblocking(socket_fd, 1) != 0) {
+        close_socket(socket_fd);
+        return -1;
+    }
+
     if (connect(socket_fd, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0) {
-        perror("connect");
+#ifdef _WIN32
+        int error = WSAGetLastError();
+        if (error != WSAEWOULDBLOCK && error != WSAEINPROGRESS && error != WSAEINVAL) {
+            perror("connect");
+            close_socket(socket_fd);
+            return -1;
+        }
+#else
+        if (errno != EINPROGRESS) {
+            perror("connect");
+            close_socket(socket_fd);
+            return -1;
+        }
+#endif
+
+        fd_set write_fds;
+        FD_ZERO(&write_fds);
+        FD_SET(socket_fd, &write_fds);
+
+        struct timeval timeout;
+        timeout.tv_sec = timeout_ms / 1000;
+        timeout.tv_usec = (timeout_ms % 1000) * 1000;
+
+        int select_result = select(socket_fd + 1, NULL, &write_fds, NULL, &timeout);
+        if (select_result <= 0) {
+            fprintf(stderr, "connect timeout or select failure\n");
+            close_socket(socket_fd);
+            return -1;
+        }
+
+        int socket_error = 0;
+        socklen_t error_size = sizeof(socket_error);
+        if (getsockopt(socket_fd, SOL_SOCKET, SO_ERROR, (char *)&socket_error, &error_size) != 0 ||
+            socket_error != 0) {
+            fprintf(stderr, "connect failed\n");
+            close_socket(socket_fd);
+            return -1;
+        }
+    }
+
+    if (set_socket_nonblocking(socket_fd, 0) != 0 || set_socket_timeouts(socket_fd, timeout_ms) != 0) {
         close_socket(socket_fd);
         return -1;
     }
@@ -189,6 +248,25 @@ int set_socket_nonblocking(int socket_fd, int nonblocking) {
     }
     return fcntl(socket_fd, F_SETFL, flags);
 #endif
+}
+
+int set_socket_timeouts(int socket_fd, int timeout_ms) {
+#ifdef _WIN32
+    DWORD timeout = (DWORD)timeout_ms;
+    if (setsockopt(socket_fd, SOL_SOCKET, SO_RCVTIMEO, (const char *)&timeout, sizeof(timeout)) != 0 ||
+        setsockopt(socket_fd, SOL_SOCKET, SO_SNDTIMEO, (const char *)&timeout, sizeof(timeout)) != 0) {
+        return -1;
+    }
+#else
+    struct timeval timeout;
+    timeout.tv_sec = timeout_ms / 1000;
+    timeout.tv_usec = (timeout_ms % 1000) * 1000;
+    if (setsockopt(socket_fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) != 0 ||
+        setsockopt(socket_fd, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout)) != 0) {
+        return -1;
+    }
+#endif
+    return 0;
 }
 
 void close_socket(int socket_fd) {
