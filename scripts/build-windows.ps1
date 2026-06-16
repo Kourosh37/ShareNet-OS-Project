@@ -2,159 +2,106 @@ $ErrorActionPreference = "Stop"
 $ErrorView = "ConciseView"
 
 trap {
+    Write-Host ""
     Write-Host "Error: $($_.Exception.Message)"
     exit 1
 }
 
 $Root = Resolve-Path (Join-Path $PSScriptRoot "..")
 $Out = Join-Path $Root "dist\windows"
-$LogDir = Join-Path $Root "build\logs"
-New-Item -ItemType Directory -Force -Path $Out, $LogDir | Out-Null
-$TotalSteps = 2
-$script:StepIndex = 0
-$script:LastProgressLength = 0
+New-Item -ItemType Directory -Force -Path $Out | Out-Null
+$env:GOPROXY = "https://proxy.golang.org,direct"
 
-function Format-Duration {
-    param([TimeSpan]$Duration)
-    if ($Duration.TotalHours -ge 1) { return "{0:h\:mm\:ss}" -f $Duration }
-    return "{0:mm\:ss}" -f $Duration
-}
+$TotalSteps = 4
+$script:Step = 0
+$script:LastLine = 0
 
-function Start-Step {
-    param([string]$Title, [string]$Estimate)
-    $script:StepIndex += 1
-    $Percent = [math]::Round((($script:StepIndex - 1) / $TotalSteps) * 100)
-    Write-ProgressText $Percent ("[{0}/{1}] {2}" -f $script:StepIndex, $TotalSteps, $Title)
-    return [System.Diagnostics.Stopwatch]::StartNew()
-}
-
-function Complete-Step {
-    param([string]$Title, [System.Diagnostics.Stopwatch]$Timer)
-    $Timer.Stop()
-    $Percent = [math]::Round(($script:StepIndex / $TotalSteps) * 100)
-    Write-ProgressText $Percent ("Done: {0} in {1}" -f $Title, (Format-Duration $Timer.Elapsed))
-}
-
-function Write-ProgressText {
-    param([int]$Percent, [string]$Status)
+function Progress-Line {
+    param([int]$Percent, [string]$Text)
     if ($Percent -lt 0) { $Percent = 0 }
     if ($Percent -gt 100) { $Percent = 100 }
     $Width = 32
     $Filled = [math]::Floor($Width * $Percent / 100)
     $Bar = ("#" * $Filled).PadRight($Width, "-")
-    $MaxStatus = 76
-    if ($Status.Length -gt $MaxStatus) {
-        $Status = $Status.Substring(0, $MaxStatus - 3) + "..."
-    }
-    $Text = ("`r[{0}] {1,3}%  {2}" -f $Bar, $Percent, $Status)
+    if ($Text.Length -gt 76) { $Text = $Text.Substring(0, 73) + "..." }
+    $Line = "`r[$Bar] {0,3}%  {1}" -f $Percent, $Text
     $Pad = ""
-    if ($script:LastProgressLength -gt $Text.Length) {
-        $Pad = " " * ($script:LastProgressLength - $Text.Length)
-    }
-    Write-Host -NoNewline ($Text + $Pad)
-    $script:LastProgressLength = $Text.Length
+    if ($script:LastLine -gt $Line.Length) { $Pad = " " * ($script:LastLine - $Line.Length) }
+    Write-Host -NoNewline ($Line + $Pad)
+    $script:LastLine = $Line.Length
 }
 
 function Ask-YesNo {
     param([string]$Question)
-    if ($script:LastProgressLength -gt 0) {
+    if ($script:LastLine -gt 0) {
         Write-Host ""
-        $script:LastProgressLength = 0
+        $script:LastLine = 0
     }
     $Answer = Read-Host "$Question [y/N]"
     return $Answer -match "^(y|yes)$"
 }
 
-function Test-CommandExists {
+function Has-Command {
     param([string]$Name)
     return [bool](Get-Command $Name -ErrorAction SilentlyContinue)
 }
 
-function Invoke-Quiet {
-    param(
-        [string]$Title,
-        [string]$LogName,
-        [scriptblock]$Command,
-        [string]$Estimate = ""
-    )
-
-    $LogPath = Join-Path $LogDir $LogName
-    $Timer = Start-Step $Title $Estimate
-    $StartedAt = Get-Date
-    @("[$StartedAt] START: $Title", "Estimate: $(if ($Estimate) { $Estimate } else { 'short' })", "") |
-        Set-Content -LiteralPath $LogPath -Encoding UTF8
-
-    $PreviousErrorActionPreference = $ErrorActionPreference
-    $ErrorActionPreference = "Continue"
+function Step {
+    param([string]$Text, [scriptblock]$Body)
+    $script:Step += 1
+    $Base = [math]::Round((($script:Step - 1) / $TotalSteps) * 100)
+    Progress-Line $Base ("[$script:Step/$TotalSteps] $Text")
     $global:LASTEXITCODE = 0
-    try {
-        & $Command *>> $LogPath
-        $ExitCode = $LASTEXITCODE
-    } finally {
-        $ErrorActionPreference = $PreviousErrorActionPreference
+    & $Body
+    if ($LASTEXITCODE -ne 0) {
+        throw "$Text failed"
     }
-    if ($ExitCode -ne 0) {
-        $Timer.Stop()
-        Add-Content -LiteralPath $LogPath -Encoding UTF8 -Value @("", "[$(Get-Date)] FAILED after $(Format-Duration $Timer.Elapsed)")
-        Write-Host ""
-        Write-Host "Failed. Last log lines from ${LogPath}:"
-        Get-Content $LogPath -Tail 80
-        throw "$Title failed. Full log: $LogPath"
-    }
-
-    Add-Content -LiteralPath $LogPath -Encoding UTF8 -Value @("", "[$(Get-Date)] DONE after $(Format-Duration $Timer.Elapsed)")
-    Complete-Step $Title $Timer
+    Progress-Line ([math]::Round(($script:Step / $TotalSteps) * 100)) "Done: $Text"
 }
 
-function Install-ScoopIfMissing {
-    if (Test-CommandExists "scoop") { return }
+function Install-Scoop {
+    if (Has-Command "scoop") { return }
     if (-not (Ask-YesNo "Scoop was not found. Install Scoop now?")) {
-        throw "Scoop is required to install missing Windows dependencies automatically."
+        throw "Scoop is required to install missing Windows dependencies."
     }
-    Invoke-Quiet "Installing Scoop" "scoop-install.log" {
-        Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser -Force -ErrorAction Stop
-        Invoke-RestMethod -Uri https://get.scoop.sh -ErrorAction Stop | Invoke-Expression
-    } "Usually 1-3 minutes."
-    $env:PATH = "$env:USERPROFILE\scoop\shims;$env:PATH"
-    if (-not (Test-CommandExists "scoop")) {
-        throw "Scoop installation finished, but scoop was not found on PATH. Open a new PowerShell window and rerun this script."
-    }
-}
-
-function Install-WindowsCompiler {
-    Install-ScoopIfMissing
-    Invoke-Quiet "Installing GCC with Scoop" "scoop-gcc.log" { scoop install gcc } "Usually 2-10 minutes."
+    Progress-Line 5 "Installing Scoop"
+    Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser -Force -ErrorAction Stop
+    Invoke-RestMethod -Uri https://get.scoop.sh -ErrorAction Stop | Invoke-Expression
     $env:PATH = "$env:USERPROFILE\scoop\shims;$env:PATH"
 }
 
-function Invoke-Compile {
-    param([string]$Name)
-    $CompileArgs = $args
-    Invoke-Quiet "Building $Name" "build-$Name.log" {
-        & $CC @CompileArgs
+function Ensure-ScoopPackage {
+    param([string]$Command, [string]$Package)
+    if (Has-Command $Command) { return }
+    Install-Scoop
+    if (-not (Ask-YesNo "$Command was not found. Install $Package with Scoop now?")) {
+        throw "$Command is required."
     }
+    Progress-Line 10 "scoop install $Package"
+    scoop install $Package | Out-Null
+    $env:PATH = "$env:USERPROFILE\scoop\shims;$env:PATH"
 }
 
-$CC = if ($env:CC) { $env:CC } else { "gcc" }
-$CFlags = @("-Wall", "-Wextra", "-std=c11", "-I$Root\include")
-$Common = @(
-    "$Root\src\common\protocol.c",
-    "$Root\src\common\socket_utils.c",
-    "$Root\src\common\file_utils.c",
-    "$Root\src\common\chunk.c"
-)
-
-if (-not (Test-CommandExists $CC)) {
-    Write-Host "Compiler '$CC' was not found."
-    if (Ask-YesNo "Install a Windows C compiler now?") {
-        Install-WindowsCompiler
-    } else {
-        throw "Cannot build without a C compiler."
-    }
+Step "Checking Go" {
+    Ensure-ScoopPackage "go" "go"
 }
 
-Invoke-Compile "windows-cli-server" @CFlags -o "$Out\sharenet_server.exe" @Common "$Root\src\server\server_main.c" "$Root\src\server\server.c" -lws2_32
-Invoke-Compile "windows-cli-client" @CFlags -o "$Out\sharenet_client.exe" @Common "$Root\src\client\client_main.c" "$Root\src\client\client.c" -lws2_32
+Step "Checking C compiler" {
+    Ensure-ScoopPackage "gcc" "gcc"
+}
 
-Write-ProgressText 100 "Windows CLI executables written to $Out"
+Step "Downloading Go modules" {
+    Push-Location $Root
+    go mod download
+    Pop-Location
+}
+
+Step "Building executables" {
+    Push-Location $Root
+    go build -trimpath -ldflags "-s -w" -o "$Out\sharenet_server.exe" .\cmd\server
+    go build -trimpath -ldflags "-s -w" -o "$Out\sharenet_client.exe" .\cmd\client
+    Pop-Location
+}
+
+Progress-Line 100 "Done: $Out"
 Write-Host ""
