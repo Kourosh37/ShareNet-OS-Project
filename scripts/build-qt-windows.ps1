@@ -3,7 +3,8 @@ $ErrorActionPreference = "Stop"
 $Root = Resolve-Path (Join-Path $PSScriptRoot "..")
 $Build = Join-Path $Root "build\qt-windows"
 $Out = Join-Path $Root "dist\qt-windows"
-New-Item -ItemType Directory -Force -Path $Build, $Out | Out-Null
+$LogDir = Join-Path $Root "build\logs"
+New-Item -ItemType Directory -Force -Path $Build, $Out, $LogDir | Out-Null
 
 $Triplet = "x64-mingw-dynamic"
 
@@ -16,6 +17,23 @@ function Ask-YesNo {
 function Test-CommandExists {
     param([string]$Name)
     return [bool](Get-Command $Name -ErrorAction SilentlyContinue)
+}
+
+function Invoke-Quiet {
+    param(
+        [string]$Title,
+        [string]$LogName,
+        [scriptblock]$Command
+    )
+
+    $LogPath = Join-Path $LogDir $LogName
+    Write-Host "$Title..."
+    & $Command *> $LogPath
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "Failed. Last log lines from ${LogPath}:"
+        Get-Content $LogPath -Tail 80
+        throw "$Title failed. Full log: $LogPath"
+    }
 }
 
 function Find-VcpkgRoot {
@@ -78,7 +96,7 @@ function Install-VcpkgIfMissing {
     }
 
     Write-Host "Installing vcpkg with Scoop..."
-    scoop install vcpkg | Out-Host
+    Invoke-Quiet "Installing vcpkg" "scoop-vcpkg.log" { scoop install vcpkg }
     $VcpkgRoot = Find-VcpkgRoot
     if (-not $VcpkgRoot) {
         throw "vcpkg installation finished, but vcpkg.exe was not found. Set VCPKG_ROOT manually."
@@ -97,17 +115,16 @@ function Install-Qt {
     if (-not (Test-Path (Join-Path $VcpkgRoot "scripts\buildsystems\vcpkg.cmake"))) {
         $Bootstrap = Join-Path $VcpkgRoot "bootstrap-vcpkg.bat"
         if (Test-Path $Bootstrap) {
-            & $Bootstrap | Out-Host
+            Invoke-Quiet "Bootstrapping vcpkg" "vcpkg-bootstrap.log" { & $Bootstrap }
         }
     }
 
     $env:VCPKG_DEFAULT_TRIPLET = $Triplet
     $env:VCPKG_DEFAULT_HOST_TRIPLET = $Triplet
 
-    Write-Host "Installing Qt base with vcpkg. This can take a while on the first run..."
-    & $VcpkgExe install "qtbase" "--triplet=$Triplet" "--host-triplet=$Triplet" | Out-Host
-    if ($LASTEXITCODE -ne 0) {
-        throw "vcpkg failed to install qtbase for $Triplet. Check the error above."
+    Write-Host "Installing Qt base with vcpkg. First run can take a long time."
+    Invoke-Quiet "Installing Qt dependencies" "vcpkg-qtbase.log" {
+        & $VcpkgExe install "qtbase" "--triplet=$Triplet" "--host-triplet=$Triplet"
     }
 
     return $VcpkgRoot
@@ -170,7 +187,8 @@ if (-not $QtPrefix) {
 }
 
 if (-not $QtPrefix -and -not $UseVcpkg) {
-    throw "Qt is still unavailable. Install Qt with vcpkg or set QT_DIR/CMAKE_PREFIX_PATH to your Qt installation."
+    Write-Host "Qt is unavailable. Install it with this script or set QT_DIR/CMAKE_PREFIX_PATH."
+    exit 1
 }
 
 $ConfigureArgs = @(
@@ -199,8 +217,8 @@ if ($UseVcpkg) {
     $ConfigureArgs += "-DCMAKE_PREFIX_PATH=$QtPrefix"
 }
 
-cmake @ConfigureArgs
-cmake --build $Build --config Release
+Invoke-Quiet "Configuring Qt project" "qt-windows-configure.log" { cmake @ConfigureArgs }
+Invoke-Quiet "Building Qt executables" "qt-windows-build.log" { cmake --build $Build --config Release }
 
 $Client = Get-ChildItem $Build -Recurse -Filter "sharenet_qt_client.exe" | Select-Object -First 1
 $Server = Get-ChildItem $Build -Recurse -Filter "sharenet_qt_server.exe" | Select-Object -First 1
@@ -213,8 +231,12 @@ Copy-Item -Force $Server.FullName $Out
 
 $Deploy = Find-WindeployQt $QtPrefix $VcpkgRoot
 if ($Deploy) {
-    & $Deploy (Join-Path $Out "sharenet_qt_client.exe")
-    & $Deploy (Join-Path $Out "sharenet_qt_server.exe")
+    Invoke-Quiet "Deploying Qt client runtime" "qt-windows-deploy-client.log" {
+        & $Deploy (Join-Path $Out "sharenet_qt_client.exe")
+    }
+    Invoke-Quiet "Deploying Qt server runtime" "qt-windows-deploy-server.log" {
+        & $Deploy (Join-Path $Out "sharenet_qt_server.exe")
+    }
 } else {
     Copy-VcpkgRuntimeDlls $VcpkgRoot
     Write-Host "windeployqt was not found. Runtime DLLs were copied when available; Qt plugins may still be required."

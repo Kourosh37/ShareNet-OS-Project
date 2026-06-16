@@ -4,7 +4,8 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BUILD_DIR="$ROOT_DIR/build/qt-linux"
 OUT_DIR="$ROOT_DIR/dist/qt-linux"
-mkdir -p "$BUILD_DIR" "$OUT_DIR"
+LOG_DIR="$ROOT_DIR/build/logs"
+mkdir -p "$BUILD_DIR" "$OUT_DIR" "$LOG_DIR"
 
 ask_yes_no() {
   local answer
@@ -14,14 +15,27 @@ ask_yes_no() {
 
 install_qt_linux() {
   if command -v apt-get >/dev/null 2>&1; then
-    sudo apt-get update
-    sudo apt-get install -y cmake build-essential qt6-base-dev
+    run_quiet "Updating apt package index" "apt-update.log" sudo apt-get update
+    run_quiet "Installing Qt dependencies with apt" "apt-qt.log" sudo apt-get install -y cmake build-essential qt6-base-dev
   elif command -v dnf >/dev/null 2>&1; then
-    sudo dnf install -y cmake gcc-c++ qt6-qtbase-devel
+    run_quiet "Installing Qt dependencies with dnf" "dnf-qt.log" sudo dnf install -y cmake gcc-c++ qt6-qtbase-devel
   elif command -v pacman >/dev/null 2>&1; then
-    sudo pacman -Sy --needed --noconfirm cmake base-devel qt6-base
+    run_quiet "Installing Qt dependencies with pacman" "pacman-qt.log" sudo pacman -Sy --needed --noconfirm cmake base-devel qt6-base
   else
     echo "Unsupported package manager. Install CMake and Qt6 manually."
+    return 1
+  fi
+}
+
+run_quiet() {
+  local title="$1"
+  local log_name="$2"
+  shift 2
+  local log_path="$LOG_DIR/$log_name"
+  echo "$title..."
+  if ! "$@" >"$log_path" 2>&1; then
+    echo "Failed. Last log lines from $log_path:"
+    tail -n 80 "$log_path" || true
     return 1
   fi
 }
@@ -35,7 +49,7 @@ if ! command -v cmake >/dev/null 2>&1 || ! cmake -S "$ROOT_DIR/src/qt" -B "$BUIL
 fi
 rm -rf "$BUILD_DIR/probe"
 
-cmake -S "$ROOT_DIR/src/qt" -B "$BUILD_DIR" -DCMAKE_BUILD_TYPE=Release
-cmake --build "$BUILD_DIR" --config Release
+run_quiet "Configuring Qt project" "qt-linux-configure.log" cmake -S "$ROOT_DIR/src/qt" -B "$BUILD_DIR" -DCMAKE_BUILD_TYPE=Release
+run_quiet "Building Qt executables" "qt-linux-build.log" cmake --build "$BUILD_DIR" --config Release
 cp "$BUILD_DIR/sharenet_qt_client" "$BUILD_DIR/sharenet_qt_server" "$OUT_DIR/"
 echo "Qt Linux executables written to $OUT_DIR"

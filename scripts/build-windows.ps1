@@ -2,7 +2,8 @@ $ErrorActionPreference = "Stop"
 
 $Root = Resolve-Path (Join-Path $PSScriptRoot "..")
 $Out = Join-Path $Root "dist\windows"
-New-Item -ItemType Directory -Force -Path $Out | Out-Null
+$LogDir = Join-Path $Root "build\logs"
+New-Item -ItemType Directory -Force -Path $Out, $LogDir | Out-Null
 
 function Ask-YesNo {
     param([string]$Question)
@@ -15,13 +16,32 @@ function Test-CommandExists {
     return [bool](Get-Command $Name -ErrorAction SilentlyContinue)
 }
 
+function Invoke-Quiet {
+    param(
+        [string]$Title,
+        [string]$LogName,
+        [scriptblock]$Command
+    )
+
+    $LogPath = Join-Path $LogDir $LogName
+    Write-Host "$Title..."
+    & $Command *> $LogPath
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "Failed. Last log lines from ${LogPath}:"
+        Get-Content $LogPath -Tail 80
+        throw "$Title failed. Full log: $LogPath"
+    }
+}
+
 function Install-WindowsCompiler {
     if (Test-CommandExists "scoop") {
-        scoop install gcc
+        Invoke-Quiet "Installing GCC with Scoop" "scoop-gcc.log" { scoop install gcc }
         return
     }
     if (Test-CommandExists "winget") {
-        winget install --id BrechtSanders.WinLibs.POSIX.UCRT -e --accept-package-agreements --accept-source-agreements
+        Invoke-Quiet "Installing GCC with winget" "winget-gcc.log" {
+            winget install --id BrechtSanders.WinLibs.POSIX.UCRT -e --accept-package-agreements --accept-source-agreements
+        }
         Write-Host "If gcc is still not on PATH, open a new PowerShell window and rerun this script."
         return
     }
@@ -29,9 +49,10 @@ function Install-WindowsCompiler {
 }
 
 function Invoke-Compile {
-    & $CC @args
-    if ($LASTEXITCODE -ne 0) {
-        throw "Compilation failed: $CC $args"
+    param([string]$Name)
+    $CompileArgs = $args
+    Invoke-Quiet "Building $Name" "build-$Name.log" {
+        & $CC @CompileArgs
     }
 }
 
@@ -53,7 +74,7 @@ if (-not (Test-CommandExists $CC)) {
     }
 }
 
-Invoke-Compile @CFlags -o "$Out\sharenet_server.exe" @Common "$Root\src\server\server_main.c" "$Root\src\server\server.c" -lws2_32
-Invoke-Compile @CFlags -o "$Out\sharenet_client.exe" @Common "$Root\src\client\client_main.c" "$Root\src\client\client.c" -lws2_32
+Invoke-Compile "windows-cli-server" @CFlags -o "$Out\sharenet_server.exe" @Common "$Root\src\server\server_main.c" "$Root\src\server\server.c" -lws2_32
+Invoke-Compile "windows-cli-client" @CFlags -o "$Out\sharenet_client.exe" @Common "$Root\src\client\client_main.c" "$Root\src\client\client.c" -lws2_32
 
 Write-Host "Windows CLI executables written to $Out"

@@ -8,6 +8,8 @@ $PackageRoot = Join-Path $Dist "package"
 $Portable = Join-Path $PackageRoot "ShareNet-Windows-Portable"
 $ZipPath = Join-Path $Dist "ShareNet-Windows-Portable.zip"
 $SfxPath = Join-Path $Dist "ShareNet-Windows-Portable.exe"
+$LogDir = Join-Path $Root "build\logs"
+New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
 
 function Ask-YesNo {
     param([string]$Question)
@@ -20,13 +22,32 @@ function Test-CommandExists {
     return [bool](Get-Command $Name -ErrorAction SilentlyContinue)
 }
 
+function Invoke-Quiet {
+    param(
+        [string]$Title,
+        [string]$LogName,
+        [scriptblock]$Command
+    )
+
+    $LogPath = Join-Path $LogDir $LogName
+    Write-Host "$Title..."
+    & $Command *> $LogPath
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "Failed. Last log lines from ${LogPath}:"
+        Get-Content $LogPath -Tail 80
+        throw "$Title failed. Full log: $LogPath"
+    }
+}
+
 function Install-7Zip {
     if (Test-CommandExists "scoop") {
-        scoop install 7zip
+        Invoke-Quiet "Installing 7-Zip with Scoop" "scoop-7zip.log" { scoop install 7zip }
         return
     }
     if (Test-CommandExists "winget") {
-        winget install --id 7zip.7zip -e --accept-package-agreements --accept-source-agreements
+        Invoke-Quiet "Installing 7-Zip with winget" "winget-7zip.log" {
+            winget install --id 7zip.7zip -e --accept-package-agreements --accept-source-agreements
+        }
         return
     }
     throw "No supported package manager found for 7-Zip."
@@ -70,10 +91,14 @@ function Copy-DirectoryContents {
 }
 
 Write-Host "Building Windows CLI executables..."
-& powershell -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "build-windows.ps1")
+Invoke-Quiet "Building Windows CLI executables" "package-build-windows.log" {
+    & powershell -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "build-windows.ps1")
+}
 
 try {
-    & powershell -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "build-qt-windows.ps1")
+    Invoke-Quiet "Building Qt Windows executables" "package-build-qt-windows.log" {
+        & powershell -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "build-qt-windows.ps1")
+    }
 } catch {
     Write-Host "Qt packaging skipped: $($_.Exception.Message)"
 }
